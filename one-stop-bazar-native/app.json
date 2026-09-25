@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "One Stop Bazar",
+    "slug": "one-stop-bazar-native",
+    "scheme": "onestopbazar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.onestopbazar.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "One Stop Bazar uses your location to show nearby stores and deliver orders to your door."
+      }
+    },
+    "android": {
+      "package": "com.onestopbazar.app",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+        }
+      },
+      "adaptiveIcon": {
+        "backgroundColor": "#E23744",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E23744",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      "expo-image",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fb4db5ac-1696-48f0-b858-413e5fcc5845"
+      }
+    }
+  }
+}
