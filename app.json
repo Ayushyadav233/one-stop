@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "fc1196f1-f68a-4fa7-b219-d2aeb9d698ad"
+      }
+    },
+    "android": {
+      "package": "com.ayushyadav233.nextjspostgresqltemplate"
+    }
+  }
+}
