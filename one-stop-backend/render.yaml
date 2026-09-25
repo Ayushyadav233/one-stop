@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: one-stop-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev
+    startCommand: npx tsx src/index.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+    # NOTE: PORT Render khud inject karta hai (code process.env.PORT use karta hai) — yaha set mat karo.

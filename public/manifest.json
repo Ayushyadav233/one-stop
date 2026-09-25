@@ -1,0 +1,9 @@
+{
+  "name": "One Stop Bazar",
+  "short_name": "Bazar",
+  "description": "Everything Around You. Delivered By Local Businesses.",
+  "display": "standalone",
+  "background_color": "#0E3B2E",
+  "theme_color": "#0E3B2E",
+  "start_url": "/"
+}

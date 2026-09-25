@@ -1,0 +1,156 @@
+import { pgTable, uuid, varchar, text, integer, numeric, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+
+// ---- Existing 4 tables (AS-IT-IS, byte-same contract) ----
+
+export const stores = pgTable("osb_stores", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  slug: varchar("slug", { length: 180 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(), // food | grocery | service
+  tagline: varchar("tagline", { length: 240 }),
+  image: text("image"),
+  rating: numeric("rating", { precision: 3, scale: 2 }).default("4.5"),
+  ratingsCount: integer("ratings_count").default(0),
+  etaMins: integer("eta_mins").default(25),
+  deliveryFee: integer("delivery_fee").default(29),
+  distanceKm: numeric("distance_km", { precision: 4, scale: 2 }).default("1.2"),
+  address: varchar("address", { length: 320 }),
+  isOpen: boolean("is_open").default(true),
+  isPureVeg: boolean("is_pure_veg").default(false),
+  offers: jsonb("offers").$type<string[]>().default([]),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  openHours: varchar("open_hours", { length: 80 }).default("9 AM – 11 PM"),
+  healthScore: integer("health_score").default(88),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const products = pgTable("osb_products", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  storeId: uuid("store_id").references(() => stores.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 180 }).notNull(),
+  description: varchar("description", { length: 480 }),
+  price: integer("price").notNull(),
+  mrp: integer("mrp"),
+  image: text("image"),
+  emoji: varchar("emoji", { length: 16 }).default("🍔"),
+  category: varchar("category", { length: 80 }),
+  rating: numeric("rating", { precision: 3, scale: 2 }).default("4.4"),
+  isVeg: boolean("is_veg").default(true),
+  isBestseller: boolean("is_bestseller").default(false),
+  stock: integer("stock").default(50),
+  unit: varchar("unit", { length: 40 }).default("1 pc"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const coupons = pgTable("osb_coupons", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: varchar("code", { length: 32 }).notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  detail: varchar("detail", { length: 320 }),
+  offPct: integer("off_pct").default(20),
+  maxOff: integer("max_off").default(120),
+  minOrder: integer("min_order").default(149),
+  kind: varchar("kind", { length: 32 }).default("all"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const orders = pgTable("osb_orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: varchar("code", { length: 24 }).notNull(),
+  storeId: uuid("store_id").references(() => stores.id),
+  storeKey: varchar("store_key", { length: 40 }),
+  storeName: varchar("store_name", { length: 160 }),
+  customerName: varchar("customer_name", { length: 120 }),
+  customerPhone: varchar("customer_phone", { length: 40 }),
+  items: jsonb("items").$type<{ name: string; qty: number; price: number; emoji?: string; image?: string; productId?: string }[]>().default([]),
+  subtotal: integer("subtotal").default(0),
+  deliveryFee: integer("delivery_fee").default(0),
+  discount: integer("discount").default(0),
+  total: integer("total").default(0),
+  status: varchar("status", { length: 32 }).default("new"),
+  payment: varchar("payment", { length: 32 }).default("UPI"),
+  address: varchar("address", { length: 320 }).default("HSR Layout, Bengaluru"),
+  etaMins: integer("eta_mins").default(28),
+  rider: varchar("rider", { length: 80 }),
+  riderPhone: varchar("rider_phone", { length: 40 }),
+  riderLat: numeric("rider_lat", { precision: 10, scale: 6 }),
+  riderLng: numeric("rider_lng", { precision: 10, scale: 6 }),
+  riderLastSeen: timestamp("rider_last_seen"),
+  otp: varchar("otp", { length: 8 }),
+  proofPhoto: text("proof_photo"),
+  deliveredBy: varchar("delivered_by", { length: 24 }),
+  note: varchar("note", { length: 240 }),
+  distanceKm: integer("distance_km").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ---- 7 new tables (multi-device sync gaps) ----
+
+export const users = pgTable("osb_users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  phone: varchar("phone", { length: 20 }).notNull().unique(),
+  name: varchar("name", { length: 120 }).default("Guest"),
+  token: text("token"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const otpCodes = pgTable("osb_otp_codes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  code: varchar("code", { length: 8 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumed: boolean("consumed").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const sellerStores = pgTable("osb_seller_stores", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 160 }).notNull(),
+  slug: varchar("slug", { length: 180 }).notNull(),
+  kind: varchar("kind", { length: 32 }).default("food"),
+  tagline: varchar("tagline", { length: 240 }),
+  image: text("image"),
+  address: varchar("address", { length: 320 }),
+  isOpen: boolean("is_open").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const reviews = pgTable("osb_reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  storeId: uuid("store_id").references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  rating: integer("rating").default(5),
+  text: varchar("text", { length: 500 }),
+  reply: varchar("reply", { length: 500 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const categoryRequests = pgTable("osb_category_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  kind: varchar("kind", { length: 32 }).default("food"),
+  requestedBy: varchar("requested_by", { length: 20 }),
+  status: varchar("status", { length: 24 }).default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const khataParties = pgTable("osb_khata_parties", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 160 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  type: varchar("type", { length: 16 }).default("sale"),
+  balance: integer("balance").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const khataEntries = pgTable("osb_khata_entries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  partyId: uuid("party_id").references(() => khataParties.id, { onDelete: "cascade" }),
+  kind: varchar("kind", { length: 16 }).default("credit"),
+  amount: integer("amount").notNull(),
+  note: varchar("note", { length: 240 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
