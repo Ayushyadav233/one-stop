@@ -20,7 +20,7 @@
 
 ## IN-PROGRESS ⏳ / REMAINING (restart ke baad YAHI)
 1. **Build `d25e6d9e` FINISHED → APK ready (link §DONE-7 me):** device pe install → Firebase test-number login → order accept → push aaya? → PASS hua to Render pe `OTP_DEV_MODE=false` karo. → APK download → Firebase login test (whitelisted test number + `123456`) → push test (order accept karke dekho) → PASS hua to Render pe `OTP_DEV_MODE=false` karo (tabhi prod OTP-hide on hoga).
-2. **TO-CONFIRM (user se puchna):** service-account JSON expo.dev Credentials me upload hua ya nahi (push delivery isi pe chalegi). Nahi hua to karwao.
+2. **CONFIRMED (user ne kiya):** FCM service-account JSON expo.dev Credentials me upload ho gaya → push delivery ready.
 3. **Baad me (deferred, explicitly):** Maps API key + rebuild #2 (user ne skip bola); coupons backend-merge (static 4 chal rahe); `eas channel:create preview` (OTA future ke liye); MSG91 fallback (dormant code, zaroorat nahi); Play assets checklist (`docs-build.md` §4-6).
 
 ## §RESUME (exact order)
