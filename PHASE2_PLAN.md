@@ -1,7 +1,9 @@
 # PHASE-2 PLAN — One Stop Bazar (catalog + SMS + push)
 
-> Status: PLAN ONLY — kuch execute nahi hua. Execute karne se pehle user se green-light lo.
-> Date: 2026-09-26. Backend live (`one-stop-hvh8.onrender.com`), APK green (`7ca4465b`).
+> Status 2026-09-26: CODE COMPLETE + PUSHED (backend Render live, app `2ccd767`).
+> EAS build `6b40b608` TRIGGERED (in-progress, firebase+push, Maps SKIP).
+> Baaki: build finish → device test → OTP_DEV_MODE=false → (later) maps key + rebuild #2.
+> Firebase project: rudra-omniverse. DETAILED build/test steps HANDOFF_RESUME.md §RESUME me.
 
 ## 0. Ground truth (verify kiya hua)
 
