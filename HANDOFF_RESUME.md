@@ -16,15 +16,15 @@
 4. **Phase-2 backend (`c69c73f`, Render live ✅):** `POST /api/auth/firebase` (firebase-admin 14.5.0, projectId-only verify), `osb_push_tokens` table + register/delete endpoints, order-status push hooks (accepted/ready/onway/delivered, fail-soft, Expo Push API). Verify kiya: firebase 503→(env ke baad)401, push register/delete ok, order PATCH ok.
 5. **Phase-2 app (`4093bd6` + `2ccd767`, pushed, tsc+doctor 21/21 ✅):** packages (rn-firebase/app+auth v26 modular API, notifications, device, updates), `FIREBASE_AUTH_ENABLED=true`, login Firebase path + push register, `catalog.ts` adapter + liveStores/liveProducts wiring + boot sync, EAS Update config (channel preview). `connect@3.7.0` devDep (css-interop upstream bug fix).
 6. **Firebase project (user ne kiya):** `rudra-omniverse`, `google-services.json` verify+commit (package `com.onestopbazar.app` ✅), Phone provider enabled + test numbers, FCM V1 enabled, Render `FIREBASE_PROJECT_ID=rudra-omniverse` set (verify: firebase endpoint ab 401 deta hai, 503 nahi).
-7. **EAS build TRIGGERED:** `6b40b608` (commit `2ccd767`, preview APK, in-progress 2026-09-26 ~11:55). Isme firebase+push hai, **Maps key SKIP** (user bola — map blank rahega is build me).
+7. **EAS builds (2026-09-26, round-3):** `6b40b608` ERRORED in INSTALL (`npm ci` out-of-sync, 94 missing: metro-0.87/babel-7.29/react-dom-19.3 stack). Root cause: floating `*` peers (`react-native-worklets→@react-native/metro-config:*`, `expo/expo-router→react-dom:*`) resolve differently per platform → lock mismatched on EAS-Linux. FIXED in `4153d67`: exact-pinned devDeps `@babel/core 7.29.7` + `@react-native/metro-config 0.86.3` + `react-dom 19.2.3` (tree deduped 1433→935 pkgs, `npm ci --include=dev` exit 0, tsc+doctor 21/21). NOTE: `overrides` does NOT force skipped peers in — direct devDep pin is what works. Next build `18885adb` ERRORED in PREBUILD (missing `android.googleServicesFile` in app.json). FIXED in `850798f` (points to `./google-services.json`, local prebuild verified OK). **Current build `d25e6d9e` (commit `850798f`) IN-PROGRESS since 12:39 PM (~25 min ETA).** Maps key SKIP (map blank rahega is build me).
 
 ## IN-PROGRESS ⏳ / REMAINING (restart ke baad YAHI)
-1. **Build `6b40b608` (~25 min):** finish hone do → APK download → Firebase login test (whitelisted test number + `123456`) → push test (order accept karke dekho) → PASS hua to Render pe `OTP_DEV_MODE=false` karo (tabhi prod OTP-hide on hoga).
+1. **Build `d25e6d9e`:** finish hone do → `build:list` me finished? → APK download → Firebase login test (whitelisted test number + `123456`) → push test (order accept karke dekho) → PASS hua to Render pe `OTP_DEV_MODE=false` karo (tabhi prod OTP-hide on hoga).
 2. **TO-CONFIRM (user se puchna):** service-account JSON expo.dev Credentials me upload hua ya nahi (push delivery isi pe chalegi). Nahi hua to karwao.
 3. **Baad me (deferred, explicitly):** Maps API key + rebuild #2 (user ne skip bola); coupons backend-merge (static 4 chal rahe); `eas channel:create preview` (OTA future ke liye); MSG91 fallback (dormant code, zaroorat nahi); Play assets checklist (`docs-build.md` §4-6).
 
 ## §RESUME (exact order)
-1. `npx eas-cli@latest build:list` (one-stop-bazar-native dir se) → `6b40b608` status dekho.
+1. `npx eas-cli@latest build:list` (one-stop-bazar-native dir se) → `d25e6d9e` status dekho.
 2. Finished → `Application Archive URL` se APK download → device pe install → Firebase test-number login → order accept → push aaya?
 3. Sab pass → Render dashboard → `OTP_DEV_MODE=false` add karo (prod OTP-hide on).
 4. User se pucho: (a) expo.dev credentials me FCM service-account upload hua? (b) Maps key kab dega (rebuild #2 ke liye)?
