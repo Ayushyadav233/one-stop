@@ -6,12 +6,64 @@ import { and, desc, eq } from "drizzle-orm";
 
 export const authRoute = new Hono();
 
-// Mock-verify rule (demo, paisa-bachao):
-// - "000000" kabhi valid nahi (negative test ke liye)
-// - dev me OTP response me wapas bhejte hai taaki app bina SMS ke login kar sake
-// - SMS provider (MSG91/Twilio) ka hook: yahi `sendSms()` me plug hoga
-async function sendSms(_phone: string, _otp: string) {
-  // TODO: plug MSG91/Twilio here when budget allows. Currently no-op (mock).
+// OTP config: OTP response me wapas bhejo sirf dev me.
+// - `OTP_DEV_MODE=false` (Render prod) → otp chhupao, SMS hi ek rasta.
+// - default (env set nahi / "true") → otp return (dev + current APK testing).
+// Rollout rule: MSG91 live hone ke BAAD hi Render pe OTP_DEV_MODE=false karo,
+// warna koi login nahi kar payega.
+const OTP_DEV_MODE = process.env.OTP_DEV_MODE !== "false";
+
+// Rate-limit (in-memory; Render free = single instance, isliye kaafi):
+// - same phone: min 60s gap between requests
+// - same phone: max 3 requests per 10 min (SMS cost-bachao)
+const RESEND_COOLDOWN_MS = 60 * 1000;
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_PER_WINDOW = 3;
+const otpHits = new Map<string, number[]>();
+
+function otpRateLimited(phone: string): "ok" | "cooldown" | "window" {
+  const now = Date.now();
+  const hits = (otpHits.get(phone) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (hits.length >= MAX_PER_WINDOW) {
+    otpHits.set(phone, hits);
+    return "window";
+  }
+  if (hits.length > 0 && now - hits[hits.length - 1] < RESEND_COOLDOWN_MS) return "cooldown";
+  hits.push(now);
+  otpHits.set(phone, hits);
+  return "ok";
+}
+
+// SMS provider hook (MSG91 Flow API v5).
+// Env: MSG91_AUTH_KEY, MSG91_SENDER_ID, MSG91_FLOW_ID (template me OTP variable ho).
+// Key set nahi → no-op (dev), taaki deploy kabhi na toote. Fail-soft: SMS fail
+// hone pe OTP row pehle se bani hoti hai, user Resend kar sakta hai.
+async function sendSms(phone: string, otp: string): Promise<boolean> {
+  const authKey = process.env.MSG91_AUTH_KEY ?? "";
+  const sender = process.env.MSG91_SENDER_ID ?? "";
+  const flowId = process.env.MSG91_FLOW_ID ?? "";
+  if (!authKey || !sender || !flowId) return false;
+  const digits = phone.replace(/\D/g, "");
+  const mobiles = digits.length === 10 ? `91${digits}` : digits;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch("https://api.msg91.com/api/v5/flow/", {
+      method: "POST",
+      headers: { authkey: authKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ flow_id: flowId, sender, mobiles, OTP: otp }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      console.error(`[sms] msg91 http ${res.status} for ${mobiles.slice(-4).padStart(mobiles.length, "*")}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[sms] send failed: ${String(e).slice(0, 200)}`);
+    return false;
+  }
 }
 
 function isValidPhone(phone: string) {
@@ -23,6 +75,11 @@ authRoute.post("/request-otp", async (c) => {
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const phone = String(b.phone ?? "").trim().slice(0, 20);
   if (!isValidPhone(phone)) return c.json({ ok: false, error: "invalid phone" }, 400);
+  const limit = otpRateLimited(phone);
+  if (limit === "cooldown")
+    return c.json({ ok: false, error: "otp already sent, wait 60s before resend" }, 429);
+  if (limit === "window")
+    return c.json({ ok: false, error: "too many requests, try again in 10 minutes" }, 429);
   const otp = String(randomInt(100000, 999999));
   try {
     await db.insert(otpCodes).values({
@@ -31,8 +88,9 @@ authRoute.post("/request-otp", async (c) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       consumed: false,
     });
-    await sendSms(phone, otp);
-    return c.json({ ok: true, otp, note: "dev-mock: use this otp" });
+    const smsSent = await sendSms(phone, otp);
+    if (OTP_DEV_MODE) return c.json({ ok: true, otp, note: "dev-mock: use this otp" });
+    return c.json({ ok: true, note: smsSent ? "otp sent via SMS" : "otp sent" });
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 300) }, 500);
   }

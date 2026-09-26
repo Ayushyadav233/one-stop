@@ -14,13 +14,17 @@
    - `GET /api/stores` → 28 stores, `source:"db"` ✅
    - `POST /api/seed` → idempotent (already seeded) ✅
    - Push: `https://github.com/Ayushyadav233/one-stop.git` (master branch) ✅
-2. **App fixes (APK-blockers):** `osb-store.ts` ke 6 relative `fetch("/api/orders/…")` → `apiPatchOrder()` (API_BASE+Bearer); login backend OTP fail-soft + token `osb-token`+memory; boot pe token restore (`shell.tsx`); `api.ts` me token/auth helpers. `tsc` pass (ESLint project me installed nahi — pre-existing).
-3. **Catalog decision (deliberate):** products/stores/coupons backend-fetch WIRE NAHI kiya — backend UUIDs vs app static string-ids mismatch tootega (cart/orders/wishlist). Static catalog = offline-first solid. Phase-2 ka kaam.
+2. **EAS preview APK build GREEN ✅:** build `7ca4465b` finished → APK: `https://expo.dev/artifacts/eas/qPM9d1N1v1PUISQByzTHuYBFxzlItYZSSh4GvbSjmGI.apk`
+   - Root cause tha `npm ci` fail (package-lock upload me jata hi nahi tha — `.gitignore` me tha) → fix: `.gitignore` clean + `.easignore` (lock upload-exclude) + `.nvmrc` node 24.21.0 + EAS Preview env `EXPO_PUBLIC_API_URL`.
+3. **App fixes (APK-blockers):** `osb-store.ts` ke 6 relative `fetch("/api/orders/…")` → `apiPatchOrder()` (API_BASE+Bearer); login backend OTP fail-soft + token `osb-token`+memory; boot pe token restore (`shell.tsx`); `api.ts` me token/auth helpers. `tsc` pass (ESLint project me installed nahi — pre-existing).
+4. **Catalog decision (deliberate):** products/stores/coupons backend-fetch WIRE NAHI kiya — backend UUIDs vs app static string-ids mismatch tootega (cart/orders/wishlist). Static catalog = offline-first solid. Phase-2 ka kaam.
 
 ## IN-PROGRESS ⏳ (abhi yahi karna)
-**EAS preview APK build → Install phase:** `npm ci` bola lockfile out of sync. `package-lock.json` hata diya (backup Temp me), taaki EAS `npm install` se fresh resolve kare.
+**EAS preview APK build `7ca4465b` → RUN_GRADLEW phase (in progress):**
+- Root cause tha `npm ci` fail: `package-lock.json` `.gitignore` me tha (galti se append hua) → EAS upload me lock jata hi nahi tha → `npm ci` har package ko "Missing from lock file" bolta tha.
+- Fix: `.gitignore` clean rewrite (lock wapas git me) + `.easignore` me `package-lock.json` (upload se exclude → EAS `yarn install` chalata hai) + `.nvmrc` (node 24.21.0 pin) + `EXPO_PUBLIC_API_URL` EAS Preview env me set.
+- EAS account: `ayushyadav233`, projectId `fb4db5ac-…`, profile `preview` = APK.
 - Render deploy: ✅ **COMPLETE** → `https://one-stop-hvh8.onrender.com`
-- EAS account: `ayushyadav233`, projectId `fb4db5ac-…` (app.json me set), profile `preview` = APK, fail build: `de239f4e-…`.
 
 ## §RESUME (exact order)
 1. `Test-Path one-stop-bazar-native\package-lock.json` → False hona chahiye (hataya tha). Truth hai to step 3. ✅ Verified
