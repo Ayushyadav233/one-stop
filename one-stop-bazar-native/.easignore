@@ -1,0 +1,3 @@
+# EAS upload se exclude — taaki EAS `npm ci` ki jagah `npm install` chalaye
+# (package-lock.json git me tracked rahega, local dev ke liye)
+package-lock.json
