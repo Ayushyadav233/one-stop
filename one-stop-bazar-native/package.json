@@ -41,9 +41,12 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@react-native/metro-config": "0.86.3",
     "@types/react": "~19.2.2",
     "babel-preset-expo": "^57.0.13",
     "connect": "^3.7.0",
+    "react-dom": "19.2.3",
     "typescript": "~6.0.3"
   },
   "scripts": {
