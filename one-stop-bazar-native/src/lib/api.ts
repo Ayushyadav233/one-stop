@@ -85,3 +85,36 @@ export function apiVerifyOtp(phone: string, otp: string, name?: string) {
     10000
   );
 }
+
+/**
+ * Firebase Phone Auth — flip to true ONLY after google-services.json lands
+ * in the project AND backend has FIREBASE_PROJECT_ID. Until then the app
+ * uses the backend-OTP flow above (unchanged).
+ */
+export const FIREBASE_AUTH_ENABLED = false;
+
+/** Firebase ID token → backend app token (same shape as verify-otp). */
+export function apiFirebaseLogin(idToken: string, name?: string) {
+  return json<{ ok?: boolean; token?: string; error?: string }>(
+    "/api/auth/firebase",
+    { method: "POST", body: JSON.stringify({ idToken, name }) },
+    10000
+  );
+}
+
+/** Push token register/unregister (needs login Bearer token). Fail-soft null. */
+export function apiRegisterPushToken(token: string, platform = "android") {
+  return json<{ ok?: boolean }>(
+    "/api/push-tokens",
+    { method: "POST", body: JSON.stringify({ token, platform }) },
+    10000
+  );
+}
+
+export function apiUnregisterPushToken(token: string) {
+  return json<{ ok?: boolean }>(
+    "/api/push-tokens",
+    { method: "DELETE", body: JSON.stringify({ token }) },
+    10000
+  );
+}

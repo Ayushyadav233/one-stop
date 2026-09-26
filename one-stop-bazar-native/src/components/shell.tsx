@@ -98,6 +98,7 @@ import { ProfileSetupScreen } from "./profile-setup";
 import { LocationSetupScreen } from "./location-setup";
 import * as SecureStore from "expo-secure-store";
 import { apiGetOrders, apiPostOrder, apiSeed, setApiToken } from "@/lib/api";
+import { registerForPush } from "@/lib/push";
 import { fromApiOrder } from "@/lib/commerce";
 
 /* ── Android status bar (web page.tsx:90-94; notch skipped — real device notch) ── */
@@ -1393,10 +1394,19 @@ function ShellBody() {
 
   useEffect(() => {
     apiSeed().catch(() => {});
+    // Remote catalog sync (fail-soft: offline ho to static catalog chalta rahe).
+    try {
+      useOSB.getState().syncRemoteCatalog();
+    } catch {
+      /* noop */
+    }
     // Restore backend auth token (login screen saves it in SecureStore).
     SecureStore.getItemAsync("osb-token")
       .then((t) => {
-        if (t) setApiToken(t);
+        if (t) {
+          setApiToken(t);
+          registerForPush().catch(() => {});
+        }
       })
       .catch(() => {});
   }, []);

@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
 import { apiPatchOrder } from "@/lib/api";
+import { fetchRemoteCatalog, productKey } from "@/lib/catalog";
 
 export interface CartLine { productId: string; name: string; emoji: string; image?: string; price: number; qty: number; storeId: string; storeName: string; unit: string; tint: string; }
 export type OrderStatus = "new" | "accepted" | "preparing" | "ready" | "onway" | "delivered" | "cancelled";
@@ -151,6 +152,11 @@ interface OSBState {
   catRequests: CategoryRequest[];
   catalogInit: boolean;
   catalog: Product[];
+  remoteStores: Store[];
+  remoteProducts: Product[];
+  catalogSyncAt: number;
+  catalogSyncing: boolean;
+  syncRemoteCatalog: () => void;
   seller: SellerSettings;
   sellerCoupons: SellerCoupon[];
   sellerOrders: SellerOrder[];
@@ -246,6 +252,10 @@ export const useOSB = create<OSBState>()(
       ],
       catalogInit: false,
       catalog: [],
+      remoteStores: [],
+      remoteProducts: [],
+      catalogSyncAt: 0,
+      catalogSyncing: false,
       seller: {
         onboarded: false,
         storeOpen: false,
@@ -504,6 +514,17 @@ export const useOSB = create<OSBState>()(
         if (st.catalogInit) return;
         set({ catalogInit: true, catalog: st.seller.onboarded ? st.catalog : [] });
       },
+      syncRemoteCatalog: () => {
+        const st = get();
+        if (st.catalogSyncing) return;
+        set({ catalogSyncing: true });
+        fetchRemoteCatalog()
+          .then((rc) => {
+            if (rc) set({ remoteStores: rc.stores, remoteProducts: rc.products, catalogSyncAt: Date.now() });
+          })
+          .catch(() => {})
+          .finally(() => set({ catalogSyncing: false }));
+      },
       addProduct: (p) => { set((st) => ({ catalog: [p, ...st.catalog] })); get().saveAccount(); },
       updateProduct: (id, p) => { set((st) => ({ catalog: st.catalog.map((x) => (x.id === id ? { ...x, ...p } : x)) })); get().saveAccount(); },
       removeProduct: (id) => { set((st) => ({ catalog: st.catalog.filter((x) => x.id !== id) })); get().saveAccount(); },
@@ -715,7 +736,7 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-    { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, wishlist: s.wishlist, orders: s.orders, mode: s.mode, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
+    { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, wishlist: s.wishlist, orders: s.orders, mode: s.mode, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
   )
 );
 
@@ -756,20 +777,27 @@ export function myStoreFromSeller(seller: SellerSettings, catalog: Product[]): S
 }
 
 export function liveStores(): Store[] {
-  const { seller, catalog } = useOSB.getState();
+  const { seller, catalog, remoteStores } = useOSB.getState();
   const mine = myStoreFromSeller(seller, catalog);
-  return mine ? [mine, ...STORES] : STORES;
+  const remoteSlugs = new Set(remoteStores.map((s) => s.slug || s.id));
+  const rest = STORES.filter((s) => !remoteSlugs.has(s.slug || s.id));
+  const list = [...remoteStores, ...rest];
+  return mine ? [mine, ...list] : list;
 }
 
 export function liveProducts(): Product[] {
-  const { catalog } = useOSB.getState();
-  return [...catalog.filter((p) => !p.hidden), ...PRODUCTS];
+  const { catalog, remoteProducts } = useOSB.getState();
+  const remoteKeys = new Set(remoteProducts.map((p) => productKey(p.storeId, p.name)));
+  const rest = PRODUCTS.filter((p) => !remoteKeys.has(productKey(p.storeId, p.name)));
+  return [...catalog.filter((p) => !p.hidden), ...remoteProducts, ...rest];
 }
 
 export function useMarketplace() {
   const seller = useOSB((s) => s.seller);
   const catalog = useOSB((s) => s.catalog);
-  return useMemo(() => ({ stores: liveStores(), products: liveProducts() }), [seller, catalog]);
+  const remoteStores = useOSB((s) => s.remoteStores);
+  const remoteProducts = useOSB((s) => s.remoteProducts);
+  return useMemo(() => ({ stores: liveStores(), products: liveProducts() }), [seller, catalog, remoteStores, remoteProducts]);
 }
 
 

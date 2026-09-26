@@ -18,7 +18,9 @@ import * as SecureStore from "expo-secure-store";
 import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
 import { ArrowLeft, Check, ChevronRight, ShieldCheck } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
-import { apiRequestOtp, apiVerifyOtp, setApiToken } from "@/lib/api";
+import { FIREBASE_AUTH_ENABLED, apiFirebaseLogin, apiRequestOtp, apiVerifyOtp, setApiToken } from "@/lib/api";
+import { registerForPush } from "@/lib/push";
+import { getAuth, signInWithPhoneNumber, type ConfirmationResult } from "@react-native-firebase/auth";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img } from "./ui";
 
@@ -37,6 +39,8 @@ export function LoginScreen() {
   const [sec, setSec] = useState(30);
   // Dev-mock OTP returned by backend when reachable (no SMS yet). Null = offline.
   const [devOtp, setDevOtp] = useState<string | null>(null);
+  // Firebase phone-auth confirmation (sirf FIREBASE_AUTH_ENABLED pe use hota).
+  const [fbConfirm, setFbConfirm] = useState<ConfirmationResult | null>(null);
   const inputs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
@@ -59,11 +63,21 @@ export function LoginScreen() {
     setErr("");
     setSending(true);
     blip(720);
-    // Backend OTP request (fail-soft: offline ho to demo flow vaise hi chalega).
-    apiRequestOtp(digits).then((j) => {
-      if (j?.ok && j.otp) setDevOtp(j.otp);
-      else setDevOtp(null);
-    });
+    if (FIREBASE_AUTH_ENABLED) {
+      // Firebase SMS path — real OTP phone pe aata hai.
+      signInWithPhoneNumber(getAuth(), `+91${digits}`)
+        .then((confirmation) => {
+          setFbConfirm(confirmation);
+          setDevOtp(null);
+        })
+        .catch(() => setErr("SMS bhejne me dikkat. Number check karke retry karo."));
+    } else {
+      // Backend OTP request (fail-soft: offline ho to demo flow vaise hi chalega).
+      apiRequestOtp(digits).then((j) => {
+        if (j?.ok && j.otp) setDevOtp(j.otp);
+        else setDevOtp(null);
+      });
+    }
     setTimeout(() => {
       setSending(false);
       setStep("otp");
@@ -71,6 +85,18 @@ export function LoginScreen() {
       blip(880);
       setTimeout(() => inputs.current[0]?.focus(), 120);
     }, 700);
+  };
+
+  const saveSession = async (token: string) => {
+    try {
+      await SecureStore.setItemAsync("osb-phone", digits);
+      await SecureStore.setItemAsync("osb-token", token);
+    } catch {
+      /* secure store unavailable — zustand persist still holds the session */
+    }
+    setApiToken(token);
+    login(digits);
+    registerForPush().catch(() => {});
   };
 
   const verify = async (code: string[]) => {
@@ -82,19 +108,29 @@ export function LoginScreen() {
       return;
     }
     blip(990, 0.16);
+    if (FIREBASE_AUTH_ENABLED && fbConfirm) {
+      // Firebase path: SMS code confirm → ID token → backend app token.
+      try {
+        const cred = await fbConfirm.confirm(v);
+        const idToken = await cred.user.getIdToken();
+        const res = await apiFirebaseLogin(idToken);
+        if (res?.ok && res.token) {
+          await saveSession(res.token);
+          return;
+        }
+      } catch {
+        /* neeche error */
+      }
+      setErr("Wrong OTP. SMS wala code dalo.");
+      blip(320);
+      return;
+    }
     // Backend verify first (fail-soft): reachable + ok → token save;
     // reachable + wrong → error; unreachable → local demo login (offline-first).
     const res = await apiVerifyOtp(digits, v);
     if (res) {
       if (res.ok && res.token) {
-        try {
-          await SecureStore.setItemAsync("osb-phone", digits);
-          await SecureStore.setItemAsync("osb-token", res.token);
-        } catch {
-          /* secure store unavailable — zustand persist still holds the session */
-        }
-        setApiToken(res.token);
-        login(digits);
+        await saveSession(res.token);
         return;
       }
       setErr(devOtp ? `Wrong OTP. Dev code: ${devOtp}` : "Wrong OTP. Try again.");
@@ -275,7 +311,11 @@ export function LoginScreen() {
                 )}
               </Text>
               <Text style={{ marginTop: 8, fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-                {devOtp ? `Dev code: ${devOtp} (no SMS yet)` : "Demo hint: any 6-digit OTP works (not 000000)."}
+                {FIREBASE_AUTH_ENABLED
+                  ? "SMS pe aaya 6-digit code dalo."
+                  : devOtp
+                    ? `Dev code: ${devOtp} (no SMS yet)`
+                    : "Demo hint: any 6-digit OTP works (not 000000)."}
               </Text>
 
               <View style={{ flex: 1 }} />
