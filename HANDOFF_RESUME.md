@@ -20,10 +20,10 @@
 4. **Catalog decision (deliberate):** products/stores/coupons backend-fetch WIRE NAHI kiya — backend UUIDs vs app static string-ids mismatch tootega (cart/orders/wishlist). Static catalog = offline-first solid. Phase-2 ka kaam.
 
 ## IN-PROGRESS ⏳ (abhi yahi karna)
-**EAS preview APK build `7ca4465b` → RUN_GRADLEW phase (in progress):**
-- Root cause tha `npm ci` fail: `package-lock.json` `.gitignore` me tha (galti se append hua) → EAS upload me lock jata hi nahi tha → `npm ci` har package ko "Missing from lock file" bolta tha.
-- Fix: `.gitignore` clean rewrite (lock wapas git me) + `.easignore` me `package-lock.json` (upload se exclude → EAS `yarn install` chalata hai) + `.nvmrc` (node 24.21.0 pin) + `EXPO_PUBLIC_API_URL` EAS Preview env me set.
-- EAS account: `ayushyadav233`, projectId `fb4db5ac-…`, profile `preview` = APK.
+**Phase-2 code COMPLETE (backend live, app pushed, rebuild PENDING):**
+- Backend (`c69c73f`, Render live ✅): `POST /api/auth/firebase` (503 until FIREBASE_PROJECT_ID set), `osb_push_tokens` table + register/delete endpoints, order-status push hooks (accepted/ready/onway/delivered, fail-soft), P1 SMS (MSG91 plug + rate-limit + OTP-hide) live.
+- App (`4093bd6`, pushed, tsc+doctor 21/21 ✅): firebase/auth/notifications/device/updates packages, `FIREBASE_AUTH_ENABLED=false` (flag-flip when google-services.json lands), login Firebase path + push register, catalog.ts adapter + liveStores/liveProducts wiring + boot sync, EAS Update config (channel preview).
+- **REBUILD GATED on user:** google-services.json + Maps API key (+ FCM key for prod push). Single batched EAS build, THEN flip `FIREBASE_AUTH_ENABLED=true` + Render `FIREBASE_PROJECT_ID` + `OTP_DEV_MODE=false`.
 - Render deploy: ✅ **COMPLETE** → `https://one-stop-hvh8.onrender.com`
 
 ## §RESUME (exact order)

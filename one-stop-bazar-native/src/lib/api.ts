@@ -87,11 +87,11 @@ export function apiVerifyOtp(phone: string, otp: string, name?: string) {
 }
 
 /**
- * Firebase Phone Auth — flip to true ONLY after google-services.json lands
- * in the project AND backend has FIREBASE_PROJECT_ID. Until then the app
- * uses the backend-OTP flow above (unchanged).
+ * Firebase Phone Auth — google-services.json landed (project rudra-omniverse),
+ * isliye ON. Backend me FIREBASE_PROJECT_ID set hona chahiye, warna
+ * /api/auth/firebase 503 dega aur login screen error dikhayegi (fail-closed).
  */
-export const FIREBASE_AUTH_ENABLED = false;
+export const FIREBASE_AUTH_ENABLED = true;
 
 /** Firebase ID token → backend app token (same shape as verify-otp). */
 export function apiFirebaseLogin(idToken: string, name?: string) {
