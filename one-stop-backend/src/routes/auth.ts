@@ -3,6 +3,7 @@ import { randomBytes, randomInt } from "node:crypto";
 import { db } from "../db/index.js";
 import { otpCodes, users } from "../db/schema.js";
 import { and, desc, eq } from "drizzle-orm";
+import { firebaseEnabled, normalizeIndianPhone, verifyFirebaseIdToken } from "../lib/firebase.js";
 
 export const authRoute = new Hono();
 
@@ -127,5 +128,36 @@ authRoute.post("/verify-otp", async (c) => {
     return c.json({ ok: true, token, user: created[0] });
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 300) }, 500);
+  }
+});
+
+// POST /api/auth/firebase { idToken, name? } -> { ok, token, user }
+// Firebase Phone Auth (app me native verify) ke baad: ID token verify karo,
+// phone se user find/create karo, APP ka apna token issue karo (Baaki sab
+// Bearer APIs unchanged). Phone users.phone format me normalize (10-digit)
+// taaki OTP-flow wale user se duplicate na bane.
+authRoute.post("/firebase", async (c) => {
+  if (!firebaseEnabled()) return c.json({ ok: false, error: "firebase not configured" }, 503);
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const idToken = String(b.idToken ?? "");
+  if (!idToken) return c.json({ ok: false, error: "missing idToken" }, 400);
+  try {
+    const { phone: fbPhone } = await verifyFirebaseIdToken(idToken);
+    const phone = normalizeIndianPhone(fbPhone);
+    if (!phone) return c.json({ ok: false, error: "unverifiable phone" }, 401);
+    const token = randomBytes(24).toString("hex");
+    const existing = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
+    if (existing[0]) {
+      await db.update(users).set({ token }).where(eq(users.id, existing[0].id));
+      return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name } });
+    }
+    const name = String(b.name ?? "Guest").slice(0, 120);
+    const created = await db
+      .insert(users)
+      .values({ phone, name, token })
+      .returning({ id: users.id, phone: users.phone, name: users.name });
+    return c.json({ ok: true, token, user: created[0] });
+  } catch {
+    return c.json({ ok: false, error: "invalid token" }, 401);
   }
 });

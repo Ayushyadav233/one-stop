@@ -154,3 +154,12 @@ export const khataEntries = pgTable("osb_khata_entries", {
   note: varchar("note", { length: 240 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ---- Phase-2: push tokens (Expo Push) ----
+export const pushTokens = pgTable("osb_push_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  platform: varchar("platform", { length: 16 }).default("android"),
+  createdAt: timestamp("created_at").defaultNow(),
+});

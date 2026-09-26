@@ -2,8 +2,17 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { orders } from "../db/schema.js";
 import { desc, eq } from "drizzle-orm";
+import { notifyUserPhones } from "../lib/push.js";
 
 export const ordersRoute = new Hono();
+
+// Order status → customer push copy (phase-2 scope: status updates only).
+const STATUS_PUSH: Record<string, { title: string; body: (code: string) => string }> = {
+  accepted: { title: "Order accepted ✅", body: (code) => `Store ne ${code} accept kiya — taiyaari shuru!` },
+  ready: { title: "Order ready 📦", body: (code) => `${code} pickup ke liye ready hai.` },
+  onway: { title: "Rider on the way 🛵", body: (code) => `${code} lekar rider nikal chuka hai.` },
+  delivered: { title: "Delivered 🎉", body: (code) => `${code} deliver ho gaya. Enjoy!` },
+};
 
 // GET /api/orders — same contract: { orders: rows[80] }, fail-soft []
 ordersRoute.get("/", async (c) => {
@@ -73,6 +82,14 @@ ordersRoute.patch("/:id", async (c) => {
       .where(eq(orders.id, id))
       .returning({ id: orders.id, status: orders.status, rider: orders.rider });
     if (!rows[0]) return c.json({ ok: true, local: true, id, ...patch });
+    // Fail-soft customer push on status change (order update kabhi na toote).
+    const tpl = typeof b.status === "string" ? STATUS_PUSH[b.status] : undefined;
+    if (tpl) {
+      const full = await db.select().from(orders).where(eq(orders.id, id)).limit(1).catch(() => []);
+      const phone = String(full[0]?.customerPhone ?? "");
+      const code = String(full[0]?.code ?? rows[0].id.slice(0, 8));
+      if (phone) void notifyUserPhones([phone], tpl.title, tpl.body(code), { orderId: id, status: String(b.status) });
+    }
     return c.json({ ok: true, ...rows[0] });
   } catch {
     return c.json({ ok: true, local: true, id, ...patch });

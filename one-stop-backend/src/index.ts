@@ -14,6 +14,7 @@ import { couponsRoute } from "./routes/coupons.js";
 import { categoryRequestsRoute } from "./routes/categoryRequests.js";
 import { reviewsRoute } from "./routes/reviews.js";
 import { khataRoute } from "./routes/khata.js";
+import { pushRoute } from "./routes/push.js";
 
 const app = new Hono();
 app.use("*", cors());
@@ -35,6 +36,7 @@ app.route("/api/coupons", couponsRoute);
 app.route("/api/category-requests", categoryRequestsRoute);
 app.route("/api/reviews", reviewsRoute);
 app.route("/api/khata", khataRoute);
+app.route("/api/push-tokens", pushRoute);
 
 const port = Number(process.env.PORT ?? 8787);
 console.log(`one-stop-backend listening on :${port}`);
