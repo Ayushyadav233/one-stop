@@ -5,7 +5,7 @@ import { Vibration } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
-import { apiPatchOrder } from "@/lib/api";
+import { apiPatchOrder, apiGetHomeBlocks, type ApiHomeBlock } from "@/lib/api";
 import { fetchRemoteCatalog, productKey } from "@/lib/catalog";
 
 export interface CartLine { productId: string; name: string; emoji: string; image?: string; price: number; qty: number; storeId: string; storeName: string; unit: string; tint: string; }
@@ -92,49 +92,53 @@ export interface TeamMember { name: string; role: string; phone: string; active:
 export interface StoreReview { name: string; rating: number; text: string; when: string; reply?: string; }
 
 export interface AccountSnap {
-  userName: string;
-  userEmail?: string;
-  userGender?: string;
-  userAvatar?: string;
-  profileComplete?: boolean;
-  address: string;
-  seller: SellerSettings;
-  catalog: Product[];
-  catalogInit: boolean;
-  sellerCoupons: SellerCoupon[];
-  sellerOrders: SellerOrder[];
-  team: TeamMember[];
-  storeReviews: StoreReview[];
-  storewideOff: number;
-  orders: Order[];
-  wishlist: string[];
-  addressArea?: string;
-  locationSet?: boolean;
-  userLat?: number;
-  userLng?: number;
-  biz?: unknown;
-}
+   userName: string;
+   userEmail?: string;
+   userGender?: string;
+   userAvatar?: string;
+   profileComplete?: boolean;
+   address: string;
+   seller: SellerSettings;
+   catalog: Product[];
+   catalogInit: boolean;
+   sellerCoupons: SellerCoupon[];
+   sellerOrders: SellerOrder[];
+   team: TeamMember[];
+   storeReviews: StoreReview[];
+   storewideOff: number;
+   orders: Order[];
+   wishlist: string[];
+   addressArea?: string;
+   locationSet?: boolean;
+   userLat?: number;
+   userLng?: number;
+   biz?: unknown;
+   role?: string;
+ }
 
 type Mode = "customer" | "provider" | "admin" | "rider";
 type Tab = string;
 
 interface OSBState {
-  booted: boolean;
-  onboarded: boolean;
-  loggedIn: boolean;
-  phone: string;
-  userName: string;
-  userEmail: string;
-  userGender: string;
-  userAvatar: string;
-  profileComplete: boolean;
-  mode: Mode;
-  tab: Tab;
-  dark: boolean;
+   booted: boolean;
+   onboarded: boolean;
+   loggedIn: boolean;
+   phone: string;
+   userName: string;
+   userEmail: string;
+   userGender: string;
+   userAvatar: string;
+   profileComplete: boolean;
+   mode: Mode;
+   tab: Tab;
+   dark: boolean;
+   role: string;
   cart: CartLine[];
   wishlist: string[];
   orders: Order[];
   coupon: string | null;
+  language: "en" | "hi";
+  notifEnabled: boolean;
   address: string;
   addressArea: string;
   locationSet: boolean;
@@ -157,6 +161,10 @@ interface OSBState {
   catalogSyncAt: number;
   catalogSyncing: boolean;
   syncRemoteCatalog: () => void;
+  homeBlocks: ApiHomeBlock[];
+  homeBlocksAt: number;
+  homeSyncing: boolean;
+  syncHomeBlocks: () => void;
   seller: SellerSettings;
   sellerCoupons: SellerCoupon[];
   sellerOrders: SellerOrder[];
@@ -207,11 +215,12 @@ interface OSBState {
   addToCart: (l: CartLine) => void;
   decCart: (id: string) => void;
   clearCart: () => void;
-  toggleWish: (id: string) => void;
-  placeOrder: (o: Order) => void;
-  cartCount: () => number;
-  cartTotal: () => number;
-  buzz: (pattern?: number | number[]) => void;
+   toggleWish: (id: string) => void;
+   placeOrder: (o: Order) => void;
+   cartCount: () => number;
+   cartTotal: () => number;
+   buzz: (pattern?: number | number[]) => void;
+   setRole: (r: string) => void;
 }
 
 export const useOSB = create<OSBState>()(
@@ -226,13 +235,16 @@ export const useOSB = create<OSBState>()(
       userGender: "",
       userAvatar: "",
       profileComplete: false,
-      mode: "customer",
-      tab: "home",
-      dark: false,
+       mode: "customer",
+       tab: "home",
+       dark: false,
+       role: "customer",
       cart: [],
       wishlist: ["p10", "p19"],
       orders: [],
       coupon: "BAZAR50",
+      language: "en",
+      notifEnabled: true,
       address: "",
       addressArea: "",
       locationSet: false,
@@ -256,6 +268,9 @@ export const useOSB = create<OSBState>()(
       remoteProducts: [],
       catalogSyncAt: 0,
       catalogSyncing: false,
+      homeBlocks: [],
+      homeBlocksAt: 0,
+      homeSyncing: false,
       seller: {
         onboarded: false,
         storeOpen: false,
@@ -279,8 +294,9 @@ export const useOSB = create<OSBState>()(
       storeReviews: [],
       storewideOff: 0,
       accounts: {},
-      riderCtx: null,
-      set: (p) => set(p),
+       riderCtx: null,
+       set: (p) => set(p),
+       setRole: (r) => set({ role: r }),
       completeProfile: (p) => {
         set({
           userName: p.name.trim(),
@@ -525,6 +541,17 @@ export const useOSB = create<OSBState>()(
           .catch(() => {})
           .finally(() => set({ catalogSyncing: false }));
       },
+      syncHomeBlocks: () => {
+        const st = get();
+        if (st.homeSyncing) return;
+        set({ homeSyncing: true });
+        apiGetHomeBlocks()
+          .then((blocks) => {
+            if (blocks.length > 0) set({ homeBlocks: blocks, homeBlocksAt: Date.now() });
+          })
+          .catch(() => {})
+          .finally(() => set({ homeSyncing: false }));
+      },
       addProduct: (p) => { set((st) => ({ catalog: [p, ...st.catalog] })); get().saveAccount(); },
       updateProduct: (id, p) => { set((st) => ({ catalog: st.catalog.map((x) => (x.id === id ? { ...x, ...p } : x)) })); get().saveAccount(); },
       removeProduct: (id) => { set((st) => ({ catalog: st.catalog.filter((x) => x.id !== id) })); get().saveAccount(); },
@@ -736,7 +763,7 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-    { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, wishlist: s.wishlist, orders: s.orders, mode: s.mode, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
+     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
   )
 );
 

@@ -90,7 +90,15 @@ export const users = pgTable("osb_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   phone: varchar("phone", { length: 20 }).notNull().unique(),
   name: varchar("name", { length: 120 }).default("Guest"),
+  email: varchar("email", { length: 160 }),
+  gender: varchar("gender", { length: 24 }),
+  avatar: varchar("avatar", { length: 16 }),
+  address: varchar("address", { length: 320 }),
+  addressArea: varchar("address_area", { length: 160 }),
+  userLat: numeric("user_lat", { precision: 10, scale: 6 }),
+  userLng: numeric("user_lng", { precision: 10, scale: 6 }),
   token: text("token"),
+  role: varchar("role", { length: 32 }).default("customer"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -133,6 +141,26 @@ export const categoryRequests = pgTable("osb_category_requests", {
   kind: varchar("kind", { length: 32 }).default("food"),
   requestedBy: varchar("requested_by", { length: 20 }),
   status: varchar("status", { length: 24 }).default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Homepage CMS — super_admin edits banners/ads/festival/strips, app renders live.
+export const homeBlocks = pgTable("osb_home_blocks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kind: varchar("kind", { length: 16 }).notNull().default("banner"),
+  tag: varchar("tag", { length: 80 }).default(""),
+  title: varchar("title", { length: 160 }).notNull().default(""),
+  sub: varchar("sub", { length: 240 }).default(""),
+  cta: varchar("cta", { length: 40 }).default(""),
+  image: text("image"),
+  c1: varchar("c1", { length: 32 }).default("rgba(10,10,10,.78)"),
+  c2: varchar("c2", { length: 32 }).default("rgba(10,10,10,.15)"),
+  linkKind: varchar("link_kind", { length: 16 }).default("none"),
+  linkValue: varchar("link_value", { length: 120 }).default(""),
+  active: boolean("active").default(true),
+  sort: integer("sort").default(0),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -11,7 +11,7 @@ import { Image } from "expo-image";
 import { Star } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { Pressable, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, Text, View, type ImageStyle, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
   useAnimatedProps,
@@ -80,7 +80,7 @@ export function Pill({
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
-  textStyle?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
   tint?: string;
 }) {
   return (

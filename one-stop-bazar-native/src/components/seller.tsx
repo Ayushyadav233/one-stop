@@ -35,6 +35,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, PRODUCTS, STORES, inr, type Product } from "@/lib/data";
 import { blip, useOSB, DEFAULT_RIDER_PERMS, type RiderPerms } from "@/lib/osb-store";
+import { useSheetBackCloser } from "@/lib/back";
 import { timeAgo } from "@/lib/commerce";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, SectionHead, VegMark } from "./ui";
@@ -355,6 +356,7 @@ function QuickRequest({ onClose }: { onClose: () => void }) {
   const requestCategory = useOSB((s) => s.requestCategory);
   const seller = useOSB((s) => s.seller);
   const { colors } = useTheme();
+  useSheetBackCloser(true, onClose);
   const [cat, setCat] = useState("");
   const [desc, setDesc] = useState("");
   return (

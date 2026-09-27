@@ -18,7 +18,7 @@ import * as SecureStore from "expo-secure-store";
 import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
 import { ArrowLeft, Check, ChevronRight, ShieldCheck } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
-import { FIREBASE_AUTH_ENABLED, apiFirebaseLogin, apiRequestOtp, apiVerifyOtp, setApiToken } from "@/lib/api";
+import { FIREBASE_AUTH_ENABLED, apiFirebaseLogin, apiGetMe, apiHealth, apiRequestOtp, apiVerifyOtp, setApiToken, apiAdminMe } from "@/lib/api";
 import { registerForPush } from "@/lib/push";
 import { getAuth, signInWithPhoneNumber, type ConfirmationResult } from "@react-native-firebase/auth";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -26,6 +26,17 @@ import { F, Img } from "./ui";
 
 const HERO =
   "https://images.pexels.com/photos/9609862/pexels-photo-9609862.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+
+/** Firebase ka asli error code → insanon wali Hindi line. */
+function firebaseErrMsg(e: unknown): string {
+  const code = String((e as { code?: unknown })?.code ?? "");
+  if (code.includes("invalid-verification-code")) return "Galat code hai. SMS/test-code dobara check karo.";
+  if (code.includes("code-expired") || code.includes("session-expired")) return "Code expire ho gaya — Resend OTP dabao.";
+  if (code.includes("too-many-requests")) return "Bahut try ho gaye — 5 min ruk ke retry karo.";
+  if (code.includes("network")) return "Network issue — internet check karke retry karo.";
+  const m = String((e as Error)?.message ?? "").slice(0, 120);
+  return m ? `Firebase error: ${m}` : "OTP verify nahi hua. Retry karo.";
+}
 
 export function LoginScreen() {
   const login = useOSB((s) => s.login);
@@ -70,7 +81,7 @@ export function LoginScreen() {
           setFbConfirm(confirmation);
           setDevOtp(null);
         })
-        .catch(() => setErr("SMS bhejne me dikkat. Number check karke retry karo."));
+        .catch((e) => setErr(firebaseErrMsg(e)));
     } else {
       // Backend OTP request (fail-soft: offline ho to demo flow vaise hi chalega).
       apiRequestOtp(digits).then((j) => {
@@ -91,11 +102,32 @@ export function LoginScreen() {
     try {
       await SecureStore.setItemAsync("osb-phone", digits);
       await SecureStore.setItemAsync("osb-token", token);
-    } catch {
-      /* secure store unavailable — zustand persist still holds the session */
-    }
+    } catch { /* silent */ }
     setApiToken(token);
+    try {
+      const me = await apiAdminMe();
+      if (me?.user?.role) useOSB.getState().setRole(me.user.role);
+    } catch { /* no backend */ }
     login(digits);
+    // Server profile pull (dusre device pe set naam/address yaha aa jayega).
+    // Fail-soft: offline ho to local account snapshot hi rahega.
+    try {
+      const p = await apiGetMe();
+      const u = p?.user;
+      if (u) {
+        const st = useOSB.getState();
+        // "Guest" backend default hai — real local naam ko overwrite mat karo.
+        if (u.name && u.name !== "Guest") st.completeProfile({ name: String(u.name), email: String(u.email ?? st.userEmail), gender: String(u.gender ?? st.userGender), avatar: String(u.avatar ?? st.userAvatar) });
+        if (u.address || u.addressArea) {
+          st.setUserAddress({
+            area: String(u.addressArea ?? u.address ?? st.addressArea),
+            full: String(u.address ?? u.addressArea ?? st.address),
+            lat: u.userLat != null ? Number(u.userLat) : st.userLat,
+            lng: u.userLng != null ? Number(u.userLng) : st.userLng,
+          });
+        }
+      }
+    } catch { /* offline — local snapshot wins */ }
     registerForPush().catch(() => {});
   };
 
@@ -109,7 +141,7 @@ export function LoginScreen() {
     }
     blip(990, 0.16);
     if (FIREBASE_AUTH_ENABLED && fbConfirm) {
-      // Firebase path: SMS code confirm → ID token → backend app token.
+      // Firebase path: SMS/test code confirm → ID token → backend app token.
       try {
         const cred = await fbConfirm.confirm(v);
         const idToken = await cred.user.getIdToken();
@@ -118,12 +150,31 @@ export function LoginScreen() {
           await saveSession(res.token);
           return;
         }
-      } catch {
-        /* neeche error */
+        // Code sahi tha (confirm chala) lekin backend login fail —
+        // 99% matlab server pe FIREBASE_PROJECT_ID missing (503).
+        // Diagnose karke backend dev-code fallback de do taaki user atke nahi.
+        const h = await apiHealth();
+        if (!h) {
+          setErr("Server se connect nahi ho raha. Backend (8787) chal raha hai?");
+          blip(320);
+          return;
+        }
+        const b = await apiRequestOtp(digits);
+        if (b?.ok && b.otp) {
+          setDevOtp(b.otp);
+          setFbConfirm(null); // ab se backend-OTP path se verify hoga
+          setErr("");
+          blip(880);
+          return; // hint line me dev code dikhega — wahi dalo
+        }
+        setErr("Server pe Firebase setup adhura hai (key missing). Backend team se bolo.");
+        blip(320);
+        return;
+      } catch (e) {
+        setErr(firebaseErrMsg(e));
+        blip(320);
+        return;
       }
-      setErr("Wrong OTP. SMS wala code dalo.");
-      blip(320);
-      return;
     }
     // Backend verify first (fail-soft): reachable + ok → token save;
     // reachable + wrong → error; unreachable → local demo login (offline-first).
@@ -311,10 +362,10 @@ export function LoginScreen() {
                 )}
               </Text>
               <Text style={{ marginTop: 8, fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-                {FIREBASE_AUTH_ENABLED
-                  ? "SMS pe aaya 6-digit code dalo."
-                  : devOtp
-                    ? `Dev code: ${devOtp} (no SMS yet)`
+                {devOtp
+                  ? `Backend code: ${devOtp} (ye dalo)`
+                  : FIREBASE_AUTH_ENABLED
+                    ? "SMS pe aaya 6-digit code dalo. Test number ho to Firebase console wala code."
                     : "Demo hint: any 6-digit OTP works (not 000000)."}
               </Text>
 

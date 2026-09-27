@@ -18,6 +18,8 @@ import * as Location from "expo-location";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { ArrowRight, Crosshair, LocateFixed, MapPin, Pencil, Search, ShieldCheck } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useSheetBackCloser } from "@/lib/back";
+import { apiPatchMe } from "@/lib/api";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F } from "./ui";
@@ -216,6 +218,7 @@ export function ChangeLocationSheet({ onClose }: { onClose: () => void }) {
   const address = useOSB((s) => s.address);
   const setUserAddress = useOSB((s) => s.setUserAddress);
   const { colors } = useTheme();
+  useSheetBackCloser(true, onClose);
   const [area, setArea] = useState(addressArea || "");
   const [full, setFull] = useState(address || "");
   const [detecting, setDetecting] = useState(false);
@@ -228,6 +231,8 @@ export function ChangeLocationSheet({ onClose }: { onClose: () => void }) {
       return;
     }
     setUserAddress({ area: area.trim(), full: full.trim() || area.trim() });
+    // Backend sync (multi-device) — fail-soft.
+    apiPatchMe({ address: full.trim() || area.trim(), addressArea: area.trim() }).catch(() => {});
     blip(880);
     onClose();
   };
@@ -245,6 +250,8 @@ export function ChangeLocationSheet({ onClose }: { onClose: () => void }) {
       setArea(a);
       setFull(f);
       setUserAddress({ area: a, full: f, lat: latitude, lng: longitude });
+      // Backend sync (multi-device) — fail-soft.
+      apiPatchMe({ address: f, addressArea: a, userLat: latitude, userLng: longitude }).catch(() => {});
       blip(920);
       onClose();
     } catch {

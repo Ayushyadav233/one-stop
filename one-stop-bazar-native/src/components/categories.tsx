@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import { Dimensions, Pressable, ScrollView, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
+import Animated, { SlideInRight } from "react-native-reanimated";
 import {
   ArrowLeft,
   ArrowRight,
@@ -39,12 +39,24 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
   const featured = list.filter((c) => c.featured);
   const { stores } = useMarketplace();
 
+  // Per-category store counts, computed once per stores/list change —
+  // calling stores.filter per card during render janks tab switch.
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of list) {
+      let n = 0;
+      for (const s of stores) if (c.kinds.includes(s.kind)) n++;
+      m.set(c.k, n);
+    }
+    return m;
+  }, [list, stores]);
+
   const openCat = (c: CategoryDef) => {
     setOpen(c);
     blip(640);
   };
 
-  const countFor = (c: CategoryDef) => stores.filter((s) => c.kinds.includes(s.kind)).length;
+  const countFor = (c: CategoryDef) => counts.get(c.k) ?? 0;
 
   const W = Dimensions.get("window").width;
   const featW = Math.round(W * 0.78);
@@ -94,7 +106,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
           contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingTop: 12 }}
         >
           {featured.map((c, i) => (
-            <Animated.View key={c.k} entering={FadeIn.delay(i * 50)} style={{ width: featW, height: 132, borderRadius: 20, overflow: "hidden" }}>
+            <View key={c.k} style={{ width: featW, height: 132, borderRadius: 20, overflow: "hidden" }}>
               <Pressable onPress={() => openCat(c)} style={{ flex: 1 }}>
                 <View style={{ flex: 1 }}>
                   {c.img ? (
@@ -122,8 +134,8 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                     </View>
                   </View>
                 </View>
-              </Pressable>
-            </Animated.View>
+                </Pressable>
+            </View>
           ))}
         </ScrollView>
 
@@ -134,9 +146,8 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
             {list.map((c, i) => {
               const n = countFor(c);
               return (
-                <Animated.View
+                <View
                   key={c.k}
-                  entering={FadeIn.delay(Math.min((i % 6) * 40, 200))}
                   style={{
                     width: "48%",
                     flexGrow: 1,
@@ -177,7 +188,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                       </View>
                     </View>
                   </Pressable>
-                </Animated.View>
+                </View>
               );
             })}
           </View>

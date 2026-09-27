@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { reviews } from "../db/schema.js";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { auth, getUser } from "../middleware/auth.js";
+import { logInfo, logOk } from "../lib/logger.js";
 
 export const reviewsRoute = new Hono();
 
@@ -35,7 +36,34 @@ reviewsRoute.post("/", auth, async (c) => {
       reply: null,
     })
     .returning();
+  logOk(`[review] new ${rating}★`, String(b.storeId ?? b.productId ?? "").slice(0, 8));
   return c.json({ ok: true, review: rows[0] });
+});
+
+// My reviews (ProfileTab) — sirf apne, newest first.
+reviewsRoute.get("/mine", auth, async (c) => {
+  const u = getUser(c);
+  try {
+    const rows = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.userId, u.id))
+      .orderBy(desc(reviews.createdAt))
+      .limit(50);
+    return c.json({ reviews: rows });
+  } catch {
+    return c.json({ reviews: [] });
+  }
+});
+
+// Apni review delete (seller reply wala bhi hata sakta hai apna).
+reviewsRoute.delete("/:id", auth, async (c) => {
+  const u = getUser(c);
+  const id = c.req.param("id") ?? "";
+  const rows = await db.delete(reviews).where(and(eq(reviews.id, id), eq(reviews.userId, u.id))).returning({ id: reviews.id });
+  if (!rows[0]) return c.json({ ok: false, error: "not found" }, 404);
+  logInfo(`[review] deleted ${id.slice(0, 8)}`);
+  return c.json({ ok: true, id });
 });
 
 // Seller reply to review

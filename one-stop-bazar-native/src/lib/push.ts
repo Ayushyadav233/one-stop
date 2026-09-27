@@ -7,7 +7,7 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
-import { apiRegisterPushToken, getApiToken } from "@/lib/api";
+import { apiRegisterPushToken, apiUnregisterPushToken, getApiToken } from "@/lib/api";
 
 // Foreground me aaya notification kaise dikhe.
 Notifications.setNotificationHandler({
@@ -58,4 +58,15 @@ export async function registerForPush(): Promise<string | null> {
 
 export function getCachedPushToken(): string | null {
   return cachedToken;
+}
+
+/** Logout/device-change: backend se token hatao. Never throws. */
+export async function unregisterForPush(): Promise<void> {
+  try {
+    if (cachedToken && getApiToken()) await apiUnregisterPushToken(cachedToken);
+  } catch {
+    /* noop */
+  } finally {
+    cachedToken = null;
+  }
 }

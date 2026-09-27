@@ -2,6 +2,7 @@ import { db } from "../db/index.js";
 import { pushTokens, users } from "../db/schema.js";
 import { eq, inArray } from "drizzle-orm";
 import { normalizeIndianPhone } from "./firebase.js";
+import { logError, logWarn } from "./logger.js";
 
 // Expo Push API se bhejo (FCM service key nahi chahiye — Expo ka push
 // service handle karta hai; prod Android pe FCM key `expo credentials` me
@@ -50,12 +51,12 @@ export async function notifyUserPhones(
     });
     clearTimeout(t);
     if (!res.ok) {
-      console.error(`[push] expo api http ${res.status}`);
+      logWarn(`[push] expo api http ${res.status}`);
       return 0;
     }
     return messages.length;
   } catch (e) {
-    console.error(`[push] send failed: ${String(e).slice(0, 200)}`);
+    logError(`[push] send failed`, String(e).slice(0, 200));
     return 0;
   }
 }
@@ -68,6 +69,6 @@ export async function deletePushToken(userId: string, token: string): Promise<vo
       await db.delete(pushTokens).where(eq(pushTokens.id, rows[0].id));
     }
   } catch (e) {
-    console.error(`[push] delete failed: ${String(e).slice(0, 200)}`);
+    logError(`[push] delete failed`, String(e).slice(0, 200));
   }
 }

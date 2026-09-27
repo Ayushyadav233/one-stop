@@ -40,6 +40,7 @@ import {
 } from "lucide-react-native";
 import { inr } from "@/lib/data";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useSheetBackCloser } from "@/lib/back";
 import {
   EXPENSE_CATS,
   useBiz,
@@ -403,6 +404,7 @@ function PartyLedgerSheet({ partyId, onClose, onPay }: { partyId: string; onClos
   const [amt, setAmt] = useState("");
   const quickKhata = useBiz((s) => s.quickKhata);
   const { colors } = useTheme();
+  useSheetBackCloser(!!party, onClose);
   if (!party) return null;
   const isCustomer = party.type === "customer";
 
@@ -808,6 +810,7 @@ function ReportsTab() {
 /* ══════════════ SHEETS ══════════════ */
 function SheetShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const { colors } = useTheme();
+  useSheetBackCloser(true, onClose);
   return (
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, backgroundColor: "rgba(0,0,0,.5)", justifyContent: "flex-end" }}>
       <Pressable onPress={onClose} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />

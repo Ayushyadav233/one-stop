@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { pushTokens } from "../db/schema.js";
 import { auth, getUser } from "../middleware/auth.js";
 import { deletePushToken } from "../lib/push.js";
+import { logInfo } from "../lib/logger.js";
 
 export const pushRoute = new Hono();
 
@@ -18,6 +19,7 @@ pushRoute.post("/", auth, async (c) => {
       .insert(pushTokens)
       .values({ userId: u.id, token, platform })
       .onConflictDoNothing({ target: pushTokens.token });
+    logInfo(`[push] token registered`, `${platform} · …${token.slice(-8)}`);
     return c.json({ ok: true });
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 300) }, 500);
@@ -29,5 +31,6 @@ pushRoute.delete("/", auth, async (c) => {
   const u = getUser(c);
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   await deletePushToken(u.id, String(b.token ?? ""));
+  logInfo(`[push] token removed (logout)`);
   return c.json({ ok: true });
 });

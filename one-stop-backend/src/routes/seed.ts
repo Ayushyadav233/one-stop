@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { coupons, products, stores } from "../db/schema.js";
 import { COUPONS, PRODUCTS, STORES } from "../db/static-data.js";
 import { sql } from "drizzle-orm";
+import { logOk } from "../lib/logger.js";
 
 export const seedRoute = new Hono();
 
@@ -69,7 +70,9 @@ async function doSeed() {
 // POST + GET both supported (same as Next route)
 seedRoute.post("/", async (c) => {
   try {
-    return c.json(await doSeed());
+    const r = await doSeed();
+    logOk(`[seed] ${"seeded" in r && r.seeded ? `fresh 🌱 ${r.stores} stores · ${r.products} products` : "already seeded, skip"}`);
+    return c.json(r);
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 500) }, 500);
   }
@@ -77,7 +80,9 @@ seedRoute.post("/", async (c) => {
 
 seedRoute.get("/", async (c) => {
   try {
-    return c.json(await doSeed());
+    const r = await doSeed();
+    logOk(`[seed] ${"seeded" in r && r.seeded ? `fresh 🌱 ${r.stores} stores · ${r.products} products` : "already seeded, skip"}`);
+    return c.json(r);
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 500) }, 500);
   }

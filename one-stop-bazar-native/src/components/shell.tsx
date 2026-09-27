@@ -11,10 +11,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Linking,
   Pressable,
   ScrollView,
   Text,
+  ToastAndroid,
   View,
   type DimensionValue,
   type StyleProp,
@@ -73,6 +75,8 @@ import {
 } from "lucide-react-native";
 import { COUPONS, STORES, inr } from "@/lib/data";
 import { blip, useOSB, type LiveOrder } from "@/lib/osb-store";
+import { tFor } from "@/lib/i18n";
+import { popBackCloser, useSheetBackCloser } from "@/lib/back";
 import {
   CUSTOMER,
   getCustomerLocation,
@@ -410,15 +414,20 @@ const NAV: Record<string, [string, string, LucideIcon][] | undefined> = {
   rider: [["rides", "Deliveries", Bike]],
 };
 
-export function BottomNav() {
-  const tab = useOSB((s) => s.tab);
-  const set = useOSB((s) => s.set);
-  const mode = useOSB((s) => s.mode);
-  const cart = useOSB((s) => s.cart);
+  export function BottomNav() {
+   const tab = useOSB((s) => s.tab);
+   const set = useOSB((s) => s.set);
+   const mode = useOSB((s) => s.mode);
+   const role = useOSB((s) => s.role);
+   const language = useOSB((s) => s.language);
+   const cart = useOSB((s) => s.cart);
   const { colors } = useTheme();
   const count = cart.reduce((a, c) => a + c.qty, 0);
   const total = cart.reduce((a, c) => a + c.qty * c.price, 0);
-  const items = NAV[mode] ?? NAV.customer!;
+   const items = (NAV[mode] ?? NAV.customer!)?.filter(([k]) => {
+     if (k === "overview") return role === "super_admin";
+     return true;
+   }) ?? NAV.customer!;
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 40, paddingHorizontal: 12, paddingBottom: 16 }}>
       {mode === "customer" && count > 0 && (
@@ -484,6 +493,16 @@ export function BottomNav() {
       >
         {items.map(([k, label, Icon]) => {
           const active = tab === k;
+          // Customer tabs follow Settings → Language (provider/admin labels stay English).
+          const shown =
+            mode === "customer"
+              ? k === "home" ? tFor(language, "navHome")
+              : k === "cats" ? tFor(language, "navCategories")
+              : k === "orders" ? tFor(language, "navOrders")
+              : k === "saved" ? tFor(language, "navSaved")
+              : k === "profile" ? tFor(language, "navYou")
+              : label
+              : label;
           return (
             <Pressable
               key={k}
@@ -500,7 +519,7 @@ export function BottomNav() {
                 />
               )}
               <Icon size={tokens.layout.bottomNav.icon} strokeWidth={active ? 2.6 : 2} color={active ? "#fff" : colors.ink3} />
-              <Text style={{ fontFamily: F.extra, fontSize: 10, color: active ? "#fff" : colors.ink3 }}>{label}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 10, color: active ? "#fff" : colors.ink3 }}>{shown}</Text>
               {k === "orders" && count > 0 && (
                 <View style={{ position: "absolute", right: 16, top: 4, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#E23744", paddingHorizontal: 4 }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>{count}</Text>
@@ -531,6 +550,8 @@ function Sheet({
   radius?: number;
 }) {
   const { colors } = useTheme();
+  // Sheet sirf visible hone pe mount hota hai — back = close.
+  useSheetBackCloser(true, onClose);
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex }}>
       <Animated.View entering={FadeIn} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.45)" }}>
@@ -993,6 +1014,7 @@ function ConfettiPiece({ left, delay, glyph }: { left: string | number; delay: n
 export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
   const o = useOSB((s) => s.orderSuccess);
   const set = useOSB((s) => s.set);
+  useSheetBackCloser(!!o, () => set({ orderSuccess: null }));
   useEffect(() => {
     if (o) blip(990, 0.2);
   }, [o]);
@@ -1066,8 +1088,10 @@ export function TrackingSheet() {
   const orders = useOSB((s) => s.orders);
   const seller = useOSB((s) => s.seller);
   const address = useOSB((s) => s.address);
-  const { colors } = useTheme();
   const o = orders.find((x) => x.id === id) ?? orders[0];
+  // Hook early-return se pehle (hooks order fixed rahe).
+  useSheetBackCloser(!!(id && o), onClose);
+  const { colors } = useTheme();
   if (!id || !o) return null;
 
   const step = statusStep(o.status);
@@ -1385,8 +1409,9 @@ function ShellBody() {
   const tab = useOSB((s) => s.tab);
   const mode = useOSB((s) => s.mode);
   const storeId = useOSB((s) => s.storeId);
-  const sellerOnboarded = useOSB((s) => s.seller.onboarded);
-  const hydrateOrders = useOSB((s) => s.hydrateOrders);
+   const sellerOnboarded = useOSB((s) => s.seller.onboarded);
+   const hydrateOrders = useOSB((s) => s.hydrateOrders);
+   const role = useOSB((s) => s.role);
   const { colors } = useTheme();
   const { track } = useTracking();
   const authed = loggedIn && profileComplete && locationSet;
@@ -1394,9 +1419,10 @@ function ShellBody() {
 
   useEffect(() => {
     apiSeed().catch(() => {});
-    // Remote catalog sync (fail-soft: offline ho to static catalog chalta rahe).
+    // Remote catalog + home CMS sync (fail-soft: offline ho to static chalta rahe).
     try {
       useOSB.getState().syncRemoteCatalog();
+      useOSB.getState().syncHomeBlocks();
     } catch {
       /* noop */
     }
@@ -1423,6 +1449,41 @@ function ShellBody() {
     return () => clearInterval(t);
   }, [hydrateOrders]);
 
+  // Android hardware back: overlay → tab → double-press exit (kabhi seedha exit nahi).
+  useEffect(() => {
+    let lastExitAsk = 0;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      const top = popBackCloser();
+      if (top) {
+        top.close();
+        return true;
+      }
+      const st = useOSB.getState();
+      const authedNow = st.loggedIn && st.profileComplete && st.locationSet;
+      if (authedNow) {
+        // Pahle apne mode ke home tab pe wapas — exit sabse last option.
+        if (st.mode === "customer" && st.tab !== "home") {
+          st.set({ tab: "home" });
+          return true;
+        }
+        if (st.mode === "provider" && st.tab !== "dash") {
+          st.set({ tab: "dash" });
+          return true;
+        }
+        if (st.mode === "admin" && st.tab !== "overview") {
+          st.set({ tab: "overview" });
+          return true;
+        }
+      }
+      const now = Date.now();
+      if (now - lastExitAsk < 2000) return false; // OS exit karega
+      lastExitAsk = now;
+      ToastAndroid.show("Press back again to exit", ToastAndroid.SHORT);
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.app }}>
       <AndroidStatusBar />
@@ -1444,8 +1505,8 @@ function ShellBody() {
         {authed && mode === "provider" && tab === "profile" && <ProfileTab />}
         {authed && mode === "provider" && (tab === "home" || tab === "search" || tab === "orders" || tab === "saved") && <ProviderDash />}
         {authed && mode === "rider" && <RiderPanel />}
-        {authed && mode === "admin" && tab === "overview" && <AdminPanel />}
-        {authed && mode === "admin" && tab === "profile" && <ProfileTab />}
+         {authed && mode === "admin" && tab === "overview" && <AdminPanel />}
+         {authed && mode === "admin" && tab === "profile" && <ProfileTab />}
       </View>
       {authed && <BottomNav />}
       <TrackingSheet />

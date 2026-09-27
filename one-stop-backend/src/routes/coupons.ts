@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { coupons } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { auth } from "../middleware/auth.js";
+import { logInfo, logWarn } from "../lib/logger.js";
 
 export const couponsRoute = new Hono();
 
@@ -39,4 +40,27 @@ couponsRoute.delete("/:id", auth, async (c) => {
   const id = c.req.param("id") ?? "";
   await db.delete(coupons).where(eq(coupons.id, id));
   return c.json({ ok: true, id });
+});
+
+// Validate + discount calc (Coupons sheet "Apply") — same math as app quoteStore.
+couponsRoute.post("/validate", async (c) => {
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const code = String(b.code ?? "").trim().toUpperCase().slice(0, 32);
+  const subtotal = Math.max(0, Math.round(Number(b.subtotal ?? 0)));
+  if (!code) return c.json({ ok: false, error: "code required" }, 400);
+  try {
+    const rows = await db.select().from(coupons).limit(50);
+    const cp = rows.find((r) => String(r.code ?? "").toUpperCase() === code);
+    if (!cp) {
+      logWarn(`[coupon] invalid code ${code}`);
+      return c.json({ ok: false, error: "invalid code" }, 404);
+    }
+    const minOrder = Number(cp.minOrder ?? 0);
+    if (subtotal < minOrder) return c.json({ ok: false, error: `min order ₹${minOrder}`, coupon: cp }, 400);
+    const discount = Math.min(Math.round((subtotal * Number(cp.offPct ?? 0)) / 100), Number(cp.maxOff ?? 0), subtotal);
+    logInfo(`[coupon] ${code} → −₹${discount}`, `on ₹${subtotal}`);
+    return c.json({ ok: true, coupon: cp, discount });
+  } catch (e) {
+    return c.json({ ok: false, error: String(e).slice(0, 200) }, 500);
+  }
 });

@@ -23,6 +23,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, type CategoryDef } from "@/lib/data";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useSheetBackCloser } from "@/lib/back";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img } from "./ui";
 
@@ -45,6 +46,7 @@ const KEYWORDS: { keys: string[]; cat: string; sub: string; attrs: string[] }[] 
 export function ProviderCatalogSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { requestCategory, addProduct, ensureCatalog } = useOSB();
   const { colors } = useTheme();
+  useSheetBackCloser(open, onClose);
   const [stage, setStage] = useState<Stage>("name");
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState<CategoryDef | null>(null);

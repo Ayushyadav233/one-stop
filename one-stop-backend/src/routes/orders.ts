@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { orders } from "../db/schema.js";
 import { desc, eq } from "drizzle-orm";
 import { notifyUserPhones } from "../lib/push.js";
+import { logError, logInfo, logOk } from "../lib/logger.js";
 
 export const ordersRoute = new Hono();
 
@@ -54,6 +55,8 @@ ordersRoute.post("/", async (c) => {
       .insert(orders)
       .values(payload)
       .returning({ id: orders.id, code: orders.code, status: orders.status });
+    const itemCount = Array.isArray(b.items) ? b.items.length : 0;
+    logOk(`[order] new ${rows[0]?.code ?? code}`, `₹${payload.total} · ${itemCount} items · ${payload.storeName}`);
     return c.json({ id: rows[0]?.id, code: rows[0]?.code ?? code, status: rows[0]?.status ?? "new" });
   } catch {
     return c.json({ id: "local-" + Date.now(), code, status: payload.status, offline: true });
@@ -82,16 +85,24 @@ ordersRoute.patch("/:id", async (c) => {
       .where(eq(orders.id, id))
       .returning({ id: orders.id, status: orders.status, rider: orders.rider });
     if (!rows[0]) return c.json({ ok: true, local: true, id, ...patch });
+    if (typeof b.status === "string") logInfo(`[order] ${id.slice(0, 8)} → ${b.status}`, rows[0].rider ? `rider=${rows[0].rider}` : "");
     // Fail-soft customer push on status change (order update kabhi na toote).
     const tpl = typeof b.status === "string" ? STATUS_PUSH[b.status] : undefined;
     if (tpl) {
       const full = await db.select().from(orders).where(eq(orders.id, id)).limit(1).catch(() => []);
       const phone = String(full[0]?.customerPhone ?? "");
       const code = String(full[0]?.code ?? rows[0].id.slice(0, 8));
-      if (phone) void notifyUserPhones([phone], tpl.title, tpl.body(code), { orderId: id, status: String(b.status) });
+      if (phone) {
+        const status = String(b.status);
+        // Fire-and-forget (response slow na ho), result log me aayega.
+        void notifyUserPhones([phone], tpl.title, tpl.body(code), { orderId: id, status }).then((sent) =>
+          logInfo(`[push] ${sent > 0 ? `sent ×${sent}` : "no devices"}`, `${status} → ${code}`),
+        );
+      }
     }
     return c.json({ ok: true, ...rows[0] });
   } catch {
+    logError(`[order] patch failed ${id.slice(0, 8)}`);
     return c.json({ ok: true, local: true, id, ...patch });
   }
 });

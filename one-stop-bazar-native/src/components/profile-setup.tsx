@@ -12,6 +12,8 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { ArrowRight, Check, Mail, Sparkles, User, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useSheetBackCloser } from "@/lib/back";
+import { apiPatchMe } from "@/lib/api";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F } from "./ui";
@@ -243,6 +245,7 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
   const phone = useOSB((s) => s.phone);
   const completeProfile = useOSB((s) => s.completeProfile);
   const { colors } = useTheme();
+  useSheetBackCloser(true, onClose);
   const [name, setName] = useState(userName);
   const [email, setEmail] = useState(userEmail);
   const [gender, setGender] = useState(userGender);
@@ -261,6 +264,8 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
       return;
     }
     completeProfile({ name: name.trim(), email: email.trim(), gender, avatar });
+    // Backend sync (multi-device) — fail-soft, offline me local hi kaafi.
+    apiPatchMe({ name: name.trim(), email: email.trim(), gender, avatar }).catch(() => {});
     blip(920, 0.15);
     onClose();
   };

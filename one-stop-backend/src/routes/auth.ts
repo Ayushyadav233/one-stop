@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { otpCodes, users } from "../db/schema.js";
 import { and, desc, eq } from "drizzle-orm";
 import { firebaseEnabled, normalizeIndianPhone, verifyFirebaseIdToken } from "../lib/firebase.js";
+import { logError, logOk, logWarn, maskPhone } from "../lib/logger.js";
 
 export const authRoute = new Hono();
 
@@ -57,12 +58,12 @@ async function sendSms(phone: string, otp: string): Promise<boolean> {
     });
     clearTimeout(t);
     if (!res.ok) {
-      console.error(`[sms] msg91 http ${res.status} for ${mobiles.slice(-4).padStart(mobiles.length, "*")}`);
+      logWarn(`[sms] msg91 http ${res.status} for ${mobiles.slice(-4).padStart(mobiles.length, "*")}`);
       return false;
     }
     return true;
   } catch (e) {
-    console.error(`[sms] send failed: ${String(e).slice(0, 200)}`);
+    logError(`[sms] send failed`, String(e).slice(0, 200));
     return false;
   }
 }
@@ -77,10 +78,14 @@ authRoute.post("/request-otp", async (c) => {
   const phone = String(b.phone ?? "").trim().slice(0, 20);
   if (!isValidPhone(phone)) return c.json({ ok: false, error: "invalid phone" }, 400);
   const limit = otpRateLimited(phone);
-  if (limit === "cooldown")
+  if (limit === "cooldown") {
+    logWarn(`[otp] resend too soon ${maskPhone(phone)}`);
     return c.json({ ok: false, error: "otp already sent, wait 60s before resend" }, 429);
-  if (limit === "window")
+  }
+  if (limit === "window") {
+    logWarn(`[otp] rate-limited ${maskPhone(phone)}`);
     return c.json({ ok: false, error: "too many requests, try again in 10 minutes" }, 429);
+  }
   const otp = String(randomInt(100000, 999999));
   try {
     await db.insert(otpCodes).values({
@@ -90,6 +95,7 @@ authRoute.post("/request-otp", async (c) => {
       consumed: false,
     });
     const smsSent = await sendSms(phone, otp);
+    logOk(`[otp] sent → ${maskPhone(phone)}`, smsSent ? "via SMS" : OTP_DEV_MODE ? "dev-mock (no SMS keys)" : "sms failed, resend allowed");
     if (OTP_DEV_MODE) return c.json({ ok: true, otp, note: "dev-mock: use this otp" });
     return c.json({ ok: true, note: smsSent ? "otp sent via SMS" : "otp sent" });
   } catch (e) {
@@ -112,7 +118,10 @@ authRoute.post("/verify-otp", async (c) => {
       .orderBy(desc(otpCodes.createdAt))
       .limit(1);
     const row = rows[0];
-    if (!row) return c.json({ ok: false, error: "wrong otp" }, 401);
+    if (!row) {
+      logWarn(`[otp] wrong code ${maskPhone(phone)}`);
+      return c.json({ ok: false, error: "wrong otp" }, 401);
+    }
     if (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now())
       return c.json({ ok: false, error: "otp expired" }, 401);
     await db.update(otpCodes).set({ consumed: true }).where(eq(otpCodes.id, row.id));
@@ -121,10 +130,12 @@ authRoute.post("/verify-otp", async (c) => {
     const token = randomBytes(24).toString("hex");
     if (existing[0]) {
       await db.update(users).set({ token }).where(eq(users.id, existing[0].id));
-      return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name } });
+      logOk(`[auth] login ✓ ${maskPhone(phone)}`, `role=${existing[0].role ?? "customer"}`);
+      return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name, role: existing[0].role ?? "customer" } });
     }
     const name = String(b.name ?? "Guest").slice(0, 120);
-    const created = await db.insert(users).values({ phone, name, token }).returning({ id: users.id, phone: users.phone, name: users.name });
+    const created = await db.insert(users).values({ phone, name, token }).returning({ id: users.id, phone: users.phone, name: users.name, role: users.role });
+    logOk(`[auth] signup ✓ ${maskPhone(phone)}`, `name=${name}`);
     return c.json({ ok: true, token, user: created[0] });
   } catch (e) {
     return c.json({ ok: false, error: String(e).slice(0, 300) }, 500);
@@ -149,6 +160,7 @@ authRoute.post("/firebase", async (c) => {
     const existing = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
     if (existing[0]) {
       await db.update(users).set({ token }).where(eq(users.id, existing[0].id));
+      logOk(`[auth] firebase login ✓ ${maskPhone(phone)}`);
       return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name } });
     }
     const name = String(b.name ?? "Guest").slice(0, 120);
@@ -156,6 +168,7 @@ authRoute.post("/firebase", async (c) => {
       .insert(users)
       .values({ phone, name, token })
       .returning({ id: users.id, phone: users.phone, name: users.name });
+    logOk(`[auth] firebase signup ✓ ${maskPhone(phone)}`);
     return c.json({ ok: true, token, user: created[0] });
   } catch {
     return c.json({ ok: false, error: "invalid token" }, 401);

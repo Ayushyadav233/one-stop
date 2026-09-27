@@ -3,7 +3,7 @@ import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
-export type AuthedUser = { id: string; phone: string; name: string | null };
+export type AuthedUser = { id: string; phone: string; name: string | null; role: string };
 
 export async function auth(c: Context, next: Next) {
   const header = c.req.header("authorization") ?? "";
@@ -12,7 +12,7 @@ export async function auth(c: Context, next: Next) {
   try {
     const rows = await db.select().from(users).where(eq(users.token, token)).limit(1);
     if (!rows[0]) return c.json({ ok: false, error: "unauthorized" }, 401);
-    c.set("user", { id: rows[0].id, phone: rows[0].phone, name: rows[0].name } as AuthedUser);
+    c.set("user", { id: rows[0].id, phone: rows[0].phone, name: rows[0].name, role: rows[0].role ?? "customer" } as AuthedUser);
     await next();
   } catch {
     return c.json({ ok: false, error: "unauthorized" }, 401);

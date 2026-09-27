@@ -10,7 +10,8 @@
  * - StoreSheet tabs render menu content for all tabs (same as web).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Dimensions, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import * as SecureStore from "expo-secure-store";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
 import {
@@ -36,32 +37,50 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { blip, useMarketplace, useOSB } from "@/lib/osb-store";
+import { apiGetCoupons, apiMyReviews, type ApiHomeBlock } from "@/lib/api";
+import { useSheetBackCloser } from "@/lib/back";
+import { unregisterForPush } from "@/lib/push";
+import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/lib/commerce";
 import { useTheme } from "@/theme/ThemeProvider";
 import { AddStepper, F, Glass, Img, LiveDot, Rating, SectionHead, SpringBtn, VegMark } from "./ui";
+import { EditProfileSheet } from "./profile-setup";
+import { ChangeLocationSheet } from "./location-setup";
+import { CouponsSheet, HelpSheet, ReviewsSheet, SettingsSheet, WalletSheet } from "./profile-sheets";
 
 function useGreeting() {
   const h = new Date().getHours();
   return greetingForHour(h);
 }
 
-/* ── Phase-6 stub for EditProfileSheet / ChangeLocationSheet ── */
-function StubSheet({ title, sub, onClose }: { title: string; sub: string; onClose: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,.45)", padding: 24 }}>
-      <View style={{ width: "100%", borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 24, alignItems: "center" }}>
-        <Text style={{ fontFamily: F.extra, fontSize: 17, color: colors.ink, textAlign: "center" }}>{title}</Text>
-        <Text style={{ marginTop: 6, fontFamily: F.medium, fontSize: 12.5, color: colors.ink2, textAlign: "center" }}>{sub}</Text>
-        <Pressable onPress={onClose} style={{ marginTop: 16, width: "100%", borderRadius: 14, backgroundColor: "#E23744", paddingVertical: 13, alignItems: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>Done</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 /* ═══════════ CustomerHome ═══════════ */
+type Banner = { img: string; tag: string; title: string; sub: string; cta: string; colors: readonly [string, string, string]; linkKind?: string; linkValue?: string };
+const DEFAULT_BANNERS: Banner[] = [
+  { img: STORES[0].image, tag: "MEGHANA FEST", title: "50% OFF Biryani", sub: "Code BAZAR50 • Free delivery", cta: "Order now", colors: ["rgba(10,10,10,.78)", "rgba(10,10,10,.15)", "transparent"] as const },
+  { img: STORES[4].image, tag: "FRESH AT 6 AM", title: "Veggies in 12 mins", sub: "Farm direct • 20% OFF", cta: "Shop fresh", colors: ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"] as const },
+  { img: STORES[9].image, tag: "GLOW AT HOME", title: "Salon @ ₹1499", sub: "O3+ facial • 4.9★ pros", cta: "Book now", colors: ["rgba(60,20,60,.8)", "rgba(60,20,60,.1)", "transparent"] as const },
+];
+const BANNER_TINTS: Banner["colors"][] = [
+  ["rgba(10,10,10,.78)", "rgba(10,10,10,.15)", "transparent"],
+  ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"],
+  ["rgba(60,20,60,.8)", "rgba(60,20,60,.1)", "transparent"],
+];
+const DEFAULT_STRIPS = ["50% OFF up to ₹100", "Free delivery over ₹199", "20% cashback", "₹200 OFF services"];
+
+/** Admin CMS block → carousel banner (fallback tints cycle). */
+function blockToBanner(b: ApiHomeBlock, i: number): Banner {
+  const tints = BANNER_TINTS[i % BANNER_TINTS.length];
+  return {
+    img: b.image || "",
+    tag: (b.tag || "OFFER").toUpperCase(),
+    title: b.title || "",
+    sub: b.sub || "",
+    cta: b.cta || "Shop now",
+    colors: [b.c1 || tints[0], b.c2 || tints[1], "transparent"] as const,
+    linkKind: b.linkKind || "none",
+    linkValue: b.linkValue || "",
+  };
+}
 export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const set = useOSB((s) => s.set);
   const query = useOSB((s) => s.query);
@@ -72,8 +91,9 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const address = useOSB((s) => s.address);
   const dark = useOSB((s) => s.dark);
   const { colors } = useTheme();
-  const g = useGreeting();
-  const [banner, setBanner] = useState(0);
+   const g = useGreeting();
+   const role = useOSB((s) => s.role);
+   const [banner, setBanner] = useState(0);
   const [locOpen, setLocOpen] = useState(false);
   const bannerRef = useRef<ScrollView>(null);
 
@@ -81,18 +101,14 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const cardW = Math.round((W - 32) * 0.88);
   const step = cardW + 10;
 
-  useEffect(() => {
-    const t = setInterval(() => {
-      setBanner((b) => {
-        const next = (b + 1) % 3;
-        bannerRef.current?.scrollTo({ x: next * step, animated: true });
-        return next;
-      });
-    }, 3800);
-    return () => clearInterval(t);
-  }, [step]);
-
   const { stores, products } = useMarketplace();
+  const homeBlocks = useOSB((s) => s.homeBlocks);
+  const syncHomeBlocks = useOSB((s) => s.syncHomeBlocks);
+  // Home khulne pe CMS refresh (cheap, fail-soft) — admin edits turant dikhen.
+  useEffect(() => {
+    syncHomeBlocks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const extraCategories = useOSB((s) => s.extraCategories);
   const hiddenCategories = useOSB((s) => s.hiddenCategories);
   const allCats = useMemo<CategoryDef[]>(
@@ -117,11 +133,81 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const grocery = quickPicks;
   const restList = filtered.slice(0, 10);
 
-  const banners = [
-    { img: STORES[0].image, tag: "MEGHANA FEST", title: "50% OFF Biryani", sub: "Code BAZAR50 • Free delivery", cta: "Order now", colors: ["rgba(10,10,10,.78)", "rgba(10,10,10,.15)", "transparent"] as const },
-    { img: STORES[4].image, tag: "FRESH AT 6 AM", title: "Veggies in 12 mins", sub: "Farm direct • 20% OFF", cta: "Shop fresh", colors: ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"] as const },
-    { img: STORES[9].image, tag: "GLOW AT HOME", title: "Salon @ ₹1499", sub: "O3+ facial • 4.9★ pros", cta: "Book now", colors: ["rgba(60,20,60,.8)", "rgba(60,20,60,.1)", "transparent"] as const },
-  ];
+  const banners: Banner[] = useMemo(() => {
+    // Admin CMS live banners (default home view). Category filter pe purana auto-logic.
+    if (!activeCat) {
+      const live = homeBlocks.filter((b) => b.kind === "banner");
+      if (live.length > 0) return live.map((b, i) => blockToBanner(b, i));
+      return DEFAULT_BANNERS;
+    }
+    const cats = activeCat.subs.length ? activeCat.subs : [activeCat.t];
+    const seen = new Set<string>();
+    const picked: typeof filtered = [];
+    for (const s of filtered) {
+      if (!s.image || seen.has(s.image)) continue;
+      seen.add(s.image);
+      picked.push(s);
+      if (picked.length === 3) break;
+    }
+    // Store images kam hain to category image + subs se fill karo — koi unrelated image nahi.
+    const base: Banner[] = picked.map((s, i) => ({
+      img: s.image,
+      tag: cats[i % cats.length].toUpperCase(),
+      title: `${s.name}`,
+      sub: `⚡ ${s.etaMins} min • ₹${s.deliveryFee === 0 ? "FREE" : s.deliveryFee} delivery`,
+      cta: "Order now",
+      colors: BANNER_TINTS[i % BANNER_TINTS.length],
+    }));
+    for (let i = base.length; i < 3; i++) {
+      base.push({
+        img: activeCat.img,
+        tag: cats[i % cats.length].toUpperCase(),
+        title: `${cats[i % cats.length]}`,
+        sub: `⚡ ${activeCat.eta} • ${activeCat.sub}`,
+        cta: "Explore",
+        colors: BANNER_TINTS[i % BANNER_TINTS.length],
+      });
+    }
+    return base;
+  }, [activeCat, filtered, homeBlocks]);
+
+  // Banner tap → admin link (store/category/search), warna kuch nahi.
+  const tapBanner = (b: Banner) => {
+    const v = (b.linkValue || "").trim();
+    if (!v || b.linkKind === "none") return;
+    if (b.linkKind === "store") {
+      const hit = stores.find((s) => s.id === v || s.slug === v || s.name.toLowerCase() === v.toLowerCase());
+      if (hit) onStore(hit.id);
+    } else if (b.linkKind === "category") {
+      set({ category: v });
+    } else if (b.linkKind === "search") {
+      set({ query: v, tab: "search" });
+    }
+    blip(700);
+  };
+
+  const liveFestival = !activeCat ? homeBlocks.find((b) => b.kind === "festival") : undefined;
+  const liveAds = !activeCat ? homeBlocks.filter((b) => b.kind === "ad") : [];
+  const liveStripTitles = !activeCat ? homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "") : [];
+  const stripTitles = liveStripTitles.length > 0 ? liveStripTitles : DEFAULT_STRIPS;
+
+  // Auto-advance banner carousel; reset index when category changes so old index doesn't atak jaaye.
+  useEffect(() => {
+    if (banners.length < 2) return;
+    const t = setInterval(() => {
+      setBanner((b) => {
+        const next = (b + 1) % banners.length;
+        bannerRef.current?.scrollTo({ x: next * step, animated: true });
+        return next;
+      });
+    }, 3800);
+    return () => clearInterval(t);
+  }, [step, banners.length]);
+
+  useEffect(() => {
+    setBanner(0);
+    bannerRef.current?.scrollTo({ x: 0, animated: false });
+  }, [activeCat?.k]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.app }}>
@@ -166,10 +252,21 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             <Mic size={17} color={colors.ink2} />
             <ScanSearch size={17} color={colors.ink2} />
           </Pressable>
-        </View>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
+         </View>
+       </View>
+       {role === "super_admin" && (
+         <Pressable onPress={() => { set({ mode: "admin", tab: "overview" }); blip(800); }} style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#0B0B0F", paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
+           <View style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
+             <Text style={{ fontFamily: F.extra, fontSize: 16 }}>🛡️</Text>
+           </View>
+           <View style={{ flex: 1 }}>
+             <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Super Admin</Text>
+             <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.5)" }}>Manage stores, products, banners, coupons</Text>
+           </View>
+           <ChevronRight size={16} color="rgba(255,255,255,.4)" />
+         </Pressable>
+       )}
+       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
         {/* greeting */}
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12 }}>
           <View>
@@ -260,11 +357,15 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             snapToAlignment="start"
             decelerationRate="fast"
             contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-            onMomentumScrollEnd={(e) => setBanner(Math.min(2, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / step))))}
+            onMomentumScrollEnd={(e) => setBanner(Math.min(banners.length - 1, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / step))))}
           >
             {banners.map((b, i) => (
-              <SpringBtn key={i} onPress={() => {}} style={{ width: cardW, height: 148, borderRadius: 20, overflow: "hidden" }}>
-                <Img src={b.img} style={{ position: "absolute", width: "100%", height: "100%" }} eager={i === 0} />
+              <SpringBtn key={i} onPress={() => tapBanner(b)} style={{ width: cardW, height: 148, borderRadius: 20, overflow: "hidden" }}>
+                {b.img ? (
+                  <Img src={b.img} style={{ position: "absolute", width: "100%", height: "100%" }} eager={i === 0} />
+                ) : (
+                  <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />
+                )}
                 <LinearGradient colors={[b.colors[0], b.colors[1], b.colors[2]]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
                 <View style={{ width: "62%", justifyContent: "center", height: "100%", padding: 16 }}>
                   <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: "#D8F34E", paddingHorizontal: 8, paddingVertical: 3 }}>
@@ -296,17 +397,41 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         {/* CATS circles */}
         <View style={{ paddingTop: 12 }}>
           <View style={{ paddingHorizontal: 16 }}>
-            <SectionHead title="Shop by craving" sub="Blinkit-fast • Zomato-tasty" action={<Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>see all ›</Text>} />
+            <SectionHead
+              title={activeCat ? activeCat.t : "Shop by craving"}
+              sub={activeCat ? `${filtered.length} stores nearby` : "Blinkit-fast • Zomato-tasty"}
+              action={
+                activeCat ? (
+                  <Pressable onPress={() => { set({ category: "all" }); blip(480); }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Clear ✕</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>see all ›</Text>
+                )
+              }
+            />
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 10, gap: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
-            {CATS.map((c) => (
-              <SpringBtn key={c.k} onPress={() => set({ query: c.t, tab: "search" })} style={{ width: 68, alignItems: "center" }}>
-                <View style={{ height: 68, width: 68, borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
-                  <Img src={c.img} style={{ width: "100%", height: "100%" }} />
-                </View>
-                <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{c.t}</Text>
-              </SpringBtn>
-            ))}
+            {activeCat
+              ? activeCat.subs.map((s, i) => {
+                  const img = quickPicks[i % quickPicks.length]?.image ?? "";
+                  return (
+                    <SpringBtn key={s} onPress={() => { set({ query: s, tab: "search" }); blip(600); }} style={{ width: 68, alignItems: "center" }}>
+                      <View style={{ height: 68, width: 68, borderRadius: 22, overflow: "hidden", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line }}>
+                        {img ? <Img src={img} style={{ width: "100%", height: "100%" }} /> : <Text style={{ fontSize: 26, textAlign: "center", lineHeight: 68 }}>{activeCat.emoji}</Text>}
+                      </View>
+                      <Text numberOfLines={1} style={{ marginTop: 6, fontFamily: F.extra, fontSize: 11, color: colors.ink, textAlign: "center", maxWidth: 60 }}>{s}</Text>
+                    </SpringBtn>
+                  );
+                })
+              : CATS.map((c) => (
+                  <SpringBtn key={c.k} onPress={() => set({ query: c.t, tab: "search" })} style={{ width: 68, alignItems: "center" }}>
+                    <View style={{ height: 68, width: 68, borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
+                      <Img src={c.img} style={{ width: "100%", height: "100%" }} />
+                    </View>
+                    <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{c.t}</Text>
+                  </SpringBtn>
+                ))}
           </ScrollView>
         </View>
 
@@ -330,15 +455,43 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
           </ScrollView>
         </View>
 
-        {/* offer strip */}
+        {/* offer strip — admin CMS (strip blocks) ya default */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingBottom: 4 }}>
-          {["50% OFF up to ₹100", "Free delivery over ₹199", "20% cashback", "₹200 OFF services"].map((t) => (
+          {stripTitles.map((t) => (
             <View key={t} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(14,59,46,.3)", backgroundColor: "rgba(216,243,78,.25)", paddingHorizontal: 12, paddingVertical: 6 }}>
               <BadgePercent size={13} color="#0E3B2E" />
               <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0E3B2E" }}>{t}</Text>
             </View>
           ))}
         </ScrollView>
+
+        {/* admin ads — CMS se, banner jaisa card */}
+        {liveAds.length > 0 && (
+          <View style={{ paddingTop: 16 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }} snapToInterval={step} snapToAlignment="start" decelerationRate="fast">
+              {liveAds.map((a) => (
+                <SpringBtn key={a.id} onPress={() => tapBanner(blockToBanner(a, 1))} style={{ width: cardW, height: 120, borderRadius: 20, overflow: "hidden" }}>
+                  {a.image ? <Img src={a.image} style={{ position: "absolute", width: "100%", height: "100%" }} /> : <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />}
+                  <LinearGradient colors={[a.c1 || "rgba(10,10,10,.8)", "rgba(10,10,10,.1)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
+                  <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+                    {a.tag ? (
+                      <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: "#F8CB46", paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: "#111114" }}>{a.tag.toUpperCase()}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={{ marginTop: 6, fontFamily: F.display, fontSize: 21, lineHeight: 23, color: "#fff" }}>{a.title}</Text>
+                    {a.sub ? <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{a.sub}</Text> : null}
+                    {a.cta ? (
+                      <View style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 6 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{a.cta} →</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </SpringBtn>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* active-cat feed */}
         {activeCat && (
@@ -355,30 +508,30 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         {/* rails */}
         {!activeCat && <CategoryRails cats={allCats} onStore={onStore} />}
 
-        {/* festive */}
+        {/* festive — admin CMS (festival block) ya default Diwali spotlight */}
         <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-          <View style={{ borderRadius: 22, overflow: "hidden" }}>
-            <Img src={STORES[7].image} style={{ position: "absolute", width: "100%", height: "100%" }} />
-            <LinearGradient colors={["rgba(74,14,46,.92)", "rgba(74,14,46,.55)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
+          <SpringBtn onPress={() => { if (liveFestival) tapBanner(blockToBanner(liveFestival, 2)); }} style={{ borderRadius: 22, overflow: "hidden" }}>
+            <Img src={liveFestival?.image || STORES[7].image} style={{ position: "absolute", width: "100%", height: "100%" }} />
+            <LinearGradient colors={[liveFestival?.c1 || "rgba(74,14,46,.92)", liveFestival?.c2 || "rgba(74,14,46,.55)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
             <View style={{ padding: 20 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Sparkles size={12} color="#FFD166" />
-                <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>DIWALI EDIT IS LIVE</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>{(liveFestival?.tag || "DIWALI EDIT IS LIVE").toUpperCase()}</Text>
               </View>
-              <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 21, lineHeight: 26, color: "#fff" }}>Sweets, diyas & gifts{"\n"}from 14 local shops 🪔</Text>
+              <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 21, lineHeight: 26, color: "#fff" }}>{liveFestival?.title || "Sweets, diyas & gifts"}{"\n"}{liveFestival?.sub || "from 14 local shops 🪔"}</Text>
               <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
                 <View style={{ borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 8 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>Shop festive</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || "Shop festive"}</Text>
                 </View>
                 <View style={{ borderRadius: 999, backgroundColor: "rgba(255,255,255,.2)", paddingHorizontal: 14, paddingVertical: 8 }}>
                   <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: "#fff" }}>Send gift</Text>
                 </View>
               </View>
             </View>
-          </View>
+          </SpringBtn>
         </View>
       </ScrollView>
-      {locOpen && <StubSheet title="Delivery address" sub="GPS location setup lands in Phase 6." onClose={() => setLocOpen(false)} />}
+      {locOpen && <ChangeLocationSheet onClose={() => setLocOpen(false)} />}
     </View>
   );
 }
@@ -863,34 +1016,92 @@ export function SavedTab({ onStore }: { onStore: (id: string) => void }) {
 }
 
 /* ═══════════ ProfileTab ═══════════ */
-const PROFILE_ROWS = [
-  ["🙋", "Edit profile", "Name, avatar, email, gender", "edit"],
-  ["📍", "Delivery address", "", "loc"],
-  ["🎟️", "Coupons & offers", "4 active • 1 expiring", ""],
-  ["⭐", "My reviews", "23 reviews • 4.8 avg", ""],
-  ["🛡️", "Super Admin demo", "Platform control centre", "admin"],
-  ["⚙️", "Settings & privacy", "Language, notifications", ""],
-  ["💬", "Help & support", "Chat in 30 sec", ""],
-] as const;
+type SheetKind = null | "edit" | "loc" | "coupons" | "reviews" | "settings" | "help" | "wallet";
 
 export function ProfileTab() {
-  const set = useOSB((s) => s.set);
-  const mode = useOSB((s) => s.mode);
-  const dark = useOSB((s) => s.dark);
-  const address = useOSB((s) => s.address);
-  const addressArea = useOSB((s) => s.addressArea);
-  const coupon = useOSB((s) => s.coupon);
-  const seller = useOSB((s) => s.seller);
-  const userName = useOSB((s) => s.userName);
-  const userEmail = useOSB((s) => s.userEmail);
-  const userAvatar = useOSB((s) => s.userAvatar);
-  const phone = useOSB((s) => s.phone);
-  const logout = useOSB((s) => s.logout);
-  const riderCtx = useOSB((s) => s.riderCtx);
+   const set = useOSB((s) => s.set);
+   const mode = useOSB((s) => s.mode);
+   const dark = useOSB((s) => s.dark);
+   const address = useOSB((s) => s.address);
+   const addressArea = useOSB((s) => s.addressArea);
+   const coupon = useOSB((s) => s.coupon);
+   const seller = useOSB((s) => s.seller);
+   const userName = useOSB((s) => s.userName);
+   const userEmail = useOSB((s) => s.userEmail);
+   const userAvatar = useOSB((s) => s.userAvatar);
+   const phone = useOSB((s) => s.phone);
+   const logout = useOSB((s) => s.logout);
+   const riderCtx = useOSB((s) => s.riderCtx);
+   const role = useOSB((s) => s.role);
+   const t = useT();
+   // Live subtitles (backend-first, static fallback) — sheet bandh hote hi refresh.
+   const [couponCount, setCouponCount] = useState(4);
+   const [revStat, setRevStat] = useState("23 reviews • 4.8 avg");
+   const [sheet, setSheet] = useState<SheetKind>(null);
+   const [copiedTick, setCopiedTick] = useState(false);
+
+   const refreshStats = () => {
+     apiGetCoupons()
+       .then((rows) => { if (rows.length > 0) setCouponCount(rows.length); })
+       .catch(() => {});
+     apiMyReviews()
+       .then((rows) => {
+         if (rows.length === 0) { setRevStat("No reviews yet"); return; }
+         const avg = rows.reduce((a, r) => a + Number(r.rating ?? 5), 0) / rows.length;
+         setRevStat(`${rows.length} reviews • ${avg.toFixed(1)} avg`);
+       })
+       .catch(() => {});
+   };
+   useEffect(() => { refreshStats(); }, []);
+   const closeSheet = () => { setSheet(null); refreshStats(); };
+
+   const rows = useMemo(() => {
+     const base: [string, string, string, SheetKind | "admin"][] = [
+       ["🙋", t("youEditProfile"), t("youEditProfileSub"), "edit"],
+       ["📍", t("youAddress"), "", "loc"],
+       ["🎟️", t("youCoupons"), `${couponCount} active`, "coupons"],
+       ["⭐", t("youReviews"), revStat, "reviews"],
+     ];
+     if (role === "super_admin") base.push(["🛡️", "Super Admin", "Platform control centre", "admin"]);
+     base.push(["⚙️", t("youSettings"), t("youSettingsSub"), "settings"], ["💬", t("youHelp"), t("youHelpSub"), "help"]);
+     return base;
+   }, [role, couponCount, revStat, t]);
   const backToDeliveries = useOSB((s) => s.backToDeliveries);
   const { colors } = useTheme();
-  const [editOpen, setEditOpen] = useState(false);
-  const [locOpen, setLocOpen] = useState(false);
+  const doLogout = () => {
+    Alert.alert(t("youLogout"), t("youLogoutConfirm"), [
+      { text: t("youCancel"), style: "cancel" },
+      {
+        text: t("youLogout"),
+        style: "destructive",
+        onPress: () => {
+          // Is device pe push bandh + backend token hatao, phir local logout.
+          unregisterForPush().catch(() => {});
+          SecureStore.deleteItemAsync("osb-token").catch(() => {});
+          logout();
+          blip(400);
+        },
+      },
+    ]);
+  };
+  const copyCoupon = async () => {
+    if (!coupon) return;
+    try {
+      // Lazy require: purani dev-build binary me ExpoClipboard native code
+      // nahi hai — static import poora bundle gira deta hai. Copy tabhi
+      // chalega jab binary me module ho (fresh build), warna Copied tick
+      // ke saath code sheet me dikhta rahega.
+      const Clipboard = require("expo-clipboard") as { setStringAsync(s: string): Promise<void> };
+      await Clipboard.setStringAsync(coupon);
+      setCopiedTick(true);
+      blip(760);
+      setTimeout(() => setCopiedTick(false), 1600);
+    } catch {
+      // Clipboard unavailable — code waise bhi card pe visible hai.
+      setCopiedTick(true);
+      setTimeout(() => setCopiedTick(false), 1600);
+    }
+  };
   return (
     <View style={{ flex: 1 }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 160 }}>
@@ -907,7 +1118,7 @@ export function ProfileTab() {
             <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 16, color: colors.ink }}>{userName || "You"}</Text>
             <Text numberOfLines={1} style={{ marginTop: 4, fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>{phone || "Logged in"}{userEmail ? ` • ${userEmail}` : ""}</Text>
           </View>
-          <Pressable onPress={() => { setEditOpen(true); blip(600); }} style={{ height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.chip }}>
+          <Pressable onPress={() => { setSheet("edit"); blip(600); }} style={{ height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.chip }}>
             <Pencil size={15} color={colors.ink} />
           </Pressable>
           <Pressable onPress={() => set({ dark: !dark })} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.chip }}>
@@ -963,15 +1174,15 @@ export function ProfileTab() {
         </Pressable>
 
         <View style={{ marginTop: 12, flexDirection: "row", gap: 10 }}>
-          <View style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+          <Pressable onPress={() => { setSheet("wallet"); blip(600); }} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Wallet size={13} color={colors.ink3} />
               <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>WALLET</Text>
             </View>
             <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, color: colors.ink }}>₹486</Text>
             <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>+ ₹48 cashback pending</Text>
-          </View>
-          <View style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+          </Pressable>
+          <Pressable onPress={() => void copyCoupon()} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Ticket size={13} color={colors.ink3} />
               <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>COUPON</Text>
@@ -982,42 +1193,46 @@ export function ProfileTab() {
               </View>
               <Copy size={13} color={colors.ink3} style={{ opacity: 0.5 }} />
             </View>
-            <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>Tap to copy</Text>
-          </View>
+            <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? "Copied ✓" : "Tap to copy"}</Text>
+          </Pressable>
         </View>
 
         <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
-          {PROFILE_ROWS.map(([e, t, s, kind], ix) => (
-            <Pressable
-              key={t}
-              onPress={() => {
-                if (kind === "admin") set({ mode: "admin", tab: "overview" });
-                else if (kind === "edit") setEditOpen(true);
-                else if (kind === "loc") setLocOpen(true);
-                blip(600);
-              }}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: ix === PROFILE_ROWS.length - 1 ? 0 : 1, borderBottomColor: colors.line }}
+           {rows.map(([e, title, s, kind], ix) => (
+             <Pressable
+               key={title}
+               onPress={() => {
+                 if (kind === "admin") set({ mode: "admin", tab: "overview" });
+                 else if (kind) setSheet(kind);
+                 blip(600);
+               }}
+               style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: ix === rows.length - 1 ? 0 : 1, borderBottomColor: colors.line }}
             >
               <View style={{ height: 40, width: 40, borderRadius: 12, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                 <Text style={{ fontSize: 18 }}>{e}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{t}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{title}</Text>
                 <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-                  {kind === "loc" ? (address ? (addressArea ? addressArea + " • tap to change" : address.slice(0, 34)) : "Set your location") : s}
+                  {kind === "loc" ? (address ? (addressArea ? addressArea + ` • ${t("youAddressChange")}` : address.slice(0, 34)) : t("youAddressSet")) : s}
                 </Text>
               </View>
               <ChevronRight size={16} color={colors.ink3} style={{ opacity: 0.35 }} />
             </Pressable>
           ))}
         </View>
-        <Pressable onPress={() => { logout(); blip(400); }} style={{ marginTop: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, alignItems: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#E23744" }}>Log out</Text>
+        <Pressable onPress={doLogout} style={{ marginTop: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, alignItems: "center" }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#E23744" }}>{t("youLogout")}</Text>
         </Pressable>
         <Text style={{ marginTop: 16, fontFamily: F.semi, fontSize: 11, color: colors.ink3, textAlign: "center" }}>One Stop Bazar • OTP login only 🇮🇳</Text>
       </ScrollView>
-      {editOpen && <StubSheet title="Edit profile" sub="Profile editor lands in Phase 6." onClose={() => setEditOpen(false)} />}
-      {locOpen && <StubSheet title="Delivery address" sub="GPS location setup lands in Phase 6." onClose={() => setLocOpen(false)} />}
+      {sheet === "edit" && <EditProfileSheet onClose={closeSheet} />}
+      {sheet === "loc" && <ChangeLocationSheet onClose={closeSheet} />}
+      {sheet === "coupons" && <CouponsSheet onClose={closeSheet} />}
+      {sheet === "reviews" && <ReviewsSheet onClose={closeSheet} />}
+      {sheet === "settings" && <SettingsSheet onClose={closeSheet} />}
+      {sheet === "help" && <HelpSheet onClose={closeSheet} />}
+      {sheet === "wallet" && <WalletSheet onClose={closeSheet} />}
     </View>
   );
 }
@@ -1027,6 +1242,7 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
   const { stores, products } = useMarketplace();
   const s = stores.find((x) => x.id === id);
   const menu = products.filter((p) => p.storeId === id);
+  useSheetBackCloser(!!s, onClose);
   const cart = useOSB((x) => x.cart);
   const addToCart = useOSB((x) => x.addToCart);
   const decCart = useOSB((x) => x.decCart);
