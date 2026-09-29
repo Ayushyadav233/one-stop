@@ -181,6 +181,23 @@ export const homeBlocks = pgTable("osb_home_blocks", {
   // Showcase stage: background video URL (mp4, muted autoplay loop) + motion preset
   video: text("video"),
   anim: varchar("anim", { length: 16 }).default("floaters"),
+  // Headline style (per banner, picked in editor): font key + text colour ('' = auto)
+  font: varchar("font", { length: 16 }).default("serif"),
+  tcolor: varchar("tcolor", { length: 32 }).default(""),
+  // Artwork fit (stage): position top|center|bottom, zoom 1-2.5, content top|center|bottom
+  artpos: varchar("artpos", { length: 8 }).default("center"),
+  zoom: numeric("zoom", { precision: 3, scale: 2 }).default("1"),
+  align: varchar("align", { length: 8 }).default("center"),
+  // Stage height in px (280-700) — GIF/art kitna bada dikhe
+  stageh: integer("stageh").default(460),
+  // CTA button style: position left|center|right, size s|m|l, bg colour
+  ctapos: varchar("ctapos", { length: 8 }).default("center"),
+  ctasize: varchar("ctasize", { length: 4 }).default("m"),
+  ctacolor: varchar("ctacolor", { length: 32 }).default("#FFE45E"),
+  // Free canvas layout (drag positions): {hx,hy,hs,cx,cy,ax,ay} numbers
+  layout: jsonb("layout").$type<{ hx?: number; hy?: number; hs?: string; cx?: number; cy?: number; ax?: number; ay?: number }>().default({}),
+  // Media fit for ad/banner cards: cover (fill+crop) | contain (full GIF visible)
+  fit: varchar("fit", { length: 8 }).default("cover"),
   active: boolean("active").default(true),
   sort: integer("sort").default(0),
   startsAt: timestamp("starts_at"),

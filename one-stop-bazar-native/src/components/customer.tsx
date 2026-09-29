@@ -11,10 +11,11 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Alert, Dimensions, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { Easing, FadeIn, SlideInRight, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, SlideInRight, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
 import {
   BadgePercent,
   Bike,
@@ -37,7 +38,7 @@ import {
   Wallet,
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
-import { blip, useMarketplace, useOSB } from "@/lib/osb-store";
+import { activeCategories, blip, useMarketplace, useOSB } from "@/lib/osb-store";
 import { apiGetCoupons, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
@@ -55,7 +56,7 @@ function useGreeting() {
 }
 
 /* ═══════════ CustomerHome ═══════════ */
-type Banner = { img: string; tag: string; title: string; sub: string; cta: string; colors: readonly [string, string, string]; linkKind?: string; linkValue?: string };
+type Banner = { img: string; tag: string; title: string; sub: string; cta: string; colors: readonly [string, string, string]; linkKind?: string; linkValue?: string; font?: string; tcolor?: string };
 const DEFAULT_BANNERS: Banner[] = [
   { img: STORES[0].image, tag: "MEGHANA FEST", title: "50% OFF Biryani", sub: "Code BAZAR50 • Free delivery", cta: "Order now", colors: ["rgba(10,10,10,.78)", "rgba(10,10,10,.15)", "transparent"] as const },
   { img: STORES[4].image, tag: "FRESH AT 6 AM", title: "Veggies in 12 mins", sub: "Farm direct • 20% OFF", cta: "Shop fresh", colors: ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"] as const },
@@ -79,7 +80,34 @@ function blockToBanner(b: ApiHomeBlock, i: number): Banner {  const tints = BANN
     colors: [b.c1 || tints[0], b.c2 || tints[1], "transparent"] as const,
     linkKind: b.linkKind || "none",
     linkValue: b.linkValue || "",
+    font: b.font || "serif",
+    tcolor: b.tcolor || "",
   };
+}
+/* Card titles (banner/ad/festival): picked font + colour, else current look. */
+export function cardTitleFamily(b: { font?: string }): string {
+  if (b.font === "heavy") return F.extra;
+  if (b.font === "bold") return F.bold;
+  return F.display;
+}
+/* CTA button: sizes + auto text contrast (dark text on light bg, white on dark). */
+export const CTA_SIZES = {
+  s: { font: 12, padH: 16, padV: 7 },
+  m: { font: 14, padH: 24, padV: 11 },
+  l: { font: 16, padH: 30, padV: 14 },
+} as const;
+export const CTA_COLORS = ["#FFE45E", "#FFFFFF", "#FF7A00", "#E23744", "#0C831F", "#111114"];
+export function ctaSize(b: { ctasize?: string }): { font: number; padH: number; padV: number } {
+  if (b.ctasize === "s" || b.ctasize === "l") return CTA_SIZES[b.ctasize];
+  return CTA_SIZES.m;
+}
+export function contrastOn(hex: string): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || "");
+  if (!m) return "#1B0B4D";
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.45 ? "#FFFFFF" : "#1B0B4D";
 }
 
 /* Festival themes (Swiggy/Blinkit style seasonal takeovers) + card placement. */
@@ -92,13 +120,83 @@ export const FESTIVAL_THEMES: Record<string, { emoji: string; label: string; c1:
   newyear: { emoji: "🎆", label: "New Year", c1: "rgba(8,10,40,.95)", c2: "rgba(90,60,220,.55)" },
   monsoon: { emoji: "🌧️", label: "Monsoon", c1: "rgba(10,40,80,.94)", c2: "rgba(30,120,150,.5)" },
 };
-export const HOME_SLOTS = [
-  { k: "top", label: "Top announcement bar", hint: "Slim strip above everything" },
+/* Headline fonts & colours — picked per banner in the editor (fully editable). */
+export const HEADLINE_FONTS = [
+  { k: "serif", label: "Festive Serif", family: "Fraunces_700Bold", italic: true },
+  { k: "heavy", label: "Heavy Sans", family: "PlusJakartaSans_800ExtraBold", italic: false },
+  { k: "bold", label: "Classic Bold", family: "PlusJakartaSans_700Bold", italic: false },
+] as const;
+export function headlineFont(b: { font?: string }) {
+  return HEADLINE_FONTS.find((f) => f.k === (b.font || "serif")) ?? HEADLINE_FONTS[0];
+}
+export const HEADLINE_COLORS = ["#FFE45E", "#FFFFFF", "#FFD166", "#FF7A00", "#FF4D6D", "#7DF9A2"];
+export const HEADLINE_SIZES = [
+  { k: "s", label: "Small", px: 30 },
+  { k: "m", label: "Medium", px: 38 },
+  { k: "l", label: "Large", px: 48 },
+] as const;
+export function headlinePx(layout?: { hs?: string }): number {
+  return HEADLINE_SIZES.find((s) => s.k === layout?.hs)?.px ?? 38;
+}
+/* Drag wrapper (edit arrange-mode): finger-drag moves the element, release saves.
+   Gesture is memoized so unrelated re-renders (banner auto-advance timer) can't
+   break a drag mid-way. Clamp applies LIVE while dragging so drop == saved. */
+function Draggable({ ix, iy, minX, maxX, minY, maxY, onBegin, onEnd, style, children }: {
+  ix: number; iy: number;
+  minX: number; maxX: number; minY: number; maxY: number;
+  onBegin?: () => void;
+  onEnd: (x: number, y: number) => void;
+  style?: object; children: React.ReactNode;
+}) {
+  const x = useSharedValue(ix);
+  const y = useSharedValue(iy);
+  const sx = useSharedValue(ix);
+  const sy = useSharedValue(iy);
+  const endRef = useRef(onEnd);
+  endRef.current = onEnd;
+  const beginRef = useRef(onBegin);
+  beginRef.current = onBegin;
+  useEffect(() => {
+    x.value = ix;
+    y.value = iy;
+  }, [ix, iy]);
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .onStart(() => {
+          sx.value = x.value;
+          sy.value = y.value;
+          if (beginRef.current) runOnJS(beginRef.current)();
+        })
+        .onUpdate((e) => {
+          "worklet";
+          x.value = Math.min(maxX, Math.max(minX, sx.value + e.translationX));
+          y.value = Math.min(maxY, Math.max(minY, sy.value + e.translationY));
+        })
+        .onEnd(() => {
+          runOnJS(endRef.current)(Math.round(x.value), Math.round(y.value));
+        }),
+    [minX, maxX, minY, maxY]
+  );
+  const st = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { translateY: y.value }] }));
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[style, st]}>{children}</Animated.View>
+    </GestureDetector>
+  );
+}
+/* Title colour: explicit pick wins, else kind default (showcase gold, others white). */
+export function headlineColor(b: { kind: string; tcolor?: string }): string {
+  if (b.tcolor) return b.tcolor;
+  return b.kind === "showcase" ? "#FFE45E" : "#FFFFFF";
+}
+export const HOME_SLOTS = [  { k: "top", label: "Top announcement bar", hint: "Slim strip above everything" },
   { k: "banners", label: "Hero carousel", hint: "Big swipeable banners" },
   { k: "strips", label: "Offer ticker", hint: "Small scrolling offer pills" },
   { k: "mid", label: "Mid-home promos", hint: "Cards between sections" },
   { k: "festival", label: "Festival spotlight", hint: "Seasonal takeover card" },
   { k: "bottom", label: "Bottom promos", hint: "Cards at the end of home" },
+  { k: "feed", label: "In-feed", hint: "Between store sections" },
 ] as const;
 /** Placement of a block (old blocks without slot keep legacy positions). */
 export function slotOf(b: ApiHomeBlock): string {
@@ -108,6 +206,21 @@ export function slotOf(b: ApiHomeBlock): string {
   if (b.kind === "strip") return "strips";
   if (b.kind === "festival") return "festival";
   return "mid";
+}
+/* Stock: out-of-stock (stock<=0, missing stock counts as in-stock) sorts last. */
+export function isOutOfStock(p: { stock?: number | null }): boolean {
+  return (p.stock ?? 1) <= 0;
+}
+export function inStockFirst<T extends { stock?: number | null }>(list: T[]): T[] {
+  return [...list].sort((a, b) => Number(isOutOfStock(a)) - Number(isOutOfStock(b)));
+}
+/* Empty draft cards (no text, no image, no playable GIF) never render for
+   customers — they stay visible in admin lists so they can be completed. */
+export function hasCardContent(b: ApiHomeBlock): boolean {
+  if ((b.title || "").trim() || (b.tag || "").trim() || (b.sub || "").trim() || (b.cta || "").trim()) return true;
+  if ((b.image || "").trim()) return true;
+  if (isPlayableVideoUrl(b.video || "")) return true;
+  return false;
 }
 
 /* ── Festive stage banner (Zomato-style): fixed template, animated floating
@@ -220,7 +333,7 @@ function MotionLayer({ preset, theme }: { preset?: string; theme?: string }) {  
 }
 /* Festive headline — 3D gold letters with staggered wave motion + twinkles.
    Fraunces display serif for the festive feel, maroon depth stack behind. */
-function WaveLetter({ ch, i }: { ch: string; i: number }) {
+function WaveLetter({ ch, i, family, italic, color, px }: { ch: string; i: number; family: string; italic: boolean; color: string; px: number }) {
   const y = useSharedValue(0);
   useEffect(() => {
     y.value = withDelay(
@@ -229,16 +342,16 @@ function WaveLetter({ ch, i }: { ch: string; i: number }) {
     );
   }, []);
   const st = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
-  if (ch === " ") return <Text style={{ fontFamily: "Fraunces_700Bold", fontSize: 38 }}> </Text>;
+  if (ch === " ") return <Text style={{ fontFamily: family, fontSize: px }}> </Text>;
   return (
     <Animated.View style={st}>
       <Text
         style={{
-          fontFamily: "Fraunces_700Bold",
-          fontSize: 38,
+          fontFamily: family,
+          fontSize: px,
           letterSpacing: 1,
-          color: "#FFE45E",
-          fontStyle: "italic",
+          color,
+          fontStyle: italic ? "italic" : "normal",
           textShadowColor: "rgba(90,10,0,.9)",
           textShadowOffset: { width: 0, height: 3 },
           textShadowRadius: 0,
@@ -261,9 +374,12 @@ function Twinkle({ left, top, size, delay, dur }: { left: string; top: number; s
     </Animated.View>
   );
 }
-function AnimatedHeadline({ text }: { text: string }) {
+function AnimatedHeadline({ text, font, color, px }: { text: string; font?: string; color?: string; px?: number }) {
   const clean = (text || "FESTIVAL").toUpperCase();
   const letters = clean.split("");
+  const face = headlineFont({ font });
+  const ink = color || "#FFE45E";
+  const size = px ?? 38;
   const glow = useSharedValue(1);
   useEffect(() => {
     glow.value = withRepeat(withTiming(1.03, { duration: 1600, easing: Easing.inOut(Easing.ease) }), -1, true);
@@ -274,10 +390,10 @@ function AnimatedHeadline({ text }: { text: string }) {
     left: 0,
     right: 0,
     textAlign: "center" as const,
-    fontFamily: "Fraunces_700Bold",
-    fontSize: 38,
+    fontFamily: face.family,
+    fontSize: size,
     letterSpacing: 1,
-    fontStyle: "italic" as const,
+    fontStyle: (face.italic ? "italic" : "normal") as "italic" | "normal",
   };
   return (
     <View style={{ position: "relative", alignItems: "center" }}>
@@ -285,15 +401,15 @@ function AnimatedHeadline({ text }: { text: string }) {
       <Twinkle left="90%" top={-10} size={20} delay={500} dur={1300} />
       <Twinkle left="82%" top={30} size={13} delay={900} dur={1000} />
       <Twinkle left="10%" top={34} size={13} delay={300} dur={1200} />
-      <Text accessible={false} style={[depthStyle, { top: 5, color: "#7A1E00" }]}>
+      <Text accessible={false} style={[depthStyle, { top: 5, color: "rgba(0,0,0,.55)" }]}>
         {clean}
       </Text>
-      <Text accessible={false} style={[depthStyle, { top: 2.5, color: "#B34A00" }]}>
+      <Text accessible={false} style={[depthStyle, { top: 2.5, color: "rgba(0,0,0,.3)" }]}>
         {clean}
       </Text>
       <Animated.View style={[{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }, glowSt]}>
         {letters.map((ch, i) => (
-          <WaveLetter key={`${ch}-${i}`} ch={ch} i={i} />
+          <WaveLetter key={`${ch}-${i}`} ch={ch} i={i} family={face.family} italic={face.italic} color={ink} px={size} />
         ))}
       </Animated.View>
     </View>
@@ -302,19 +418,73 @@ function AnimatedHeadline({ text }: { text: string }) {
 /* Festive hero (Zomato style): location + search live INSIDE the stage banner.
    Backdrop priority: uploaded video → uploaded art → theme gradient template.
    Motion overlay (floaters/confetti/spotlight) auto-fits on top of any backdrop. */
-function ShowcaseHeroCard({ b, header, onTap, onEdit, editing }: { b: ApiHomeBlock; header: React.ReactNode; onTap: () => void; onEdit: () => void; editing: boolean }) {
+function ShowcaseHeroCard({ b, header, onTap, onEdit, editing, arrange, onMove, onToggleArrange, onDragStart }: { b: ApiHomeBlock; header: React.ReactNode; onTap: () => void; onEdit: () => void; editing: boolean; arrange: boolean; onMove: (patch: { hx?: number; hy?: number; cx?: number; cy?: number; ax?: number; ay?: number }) => void; onToggleArrange: () => void; onDragStart: () => void }) {
   const W = Dimensions.get("window").width;
   const th = FESTIVAL_THEMES[b.theme ?? "none"] ?? FESTIVAL_THEMES.none;
   const hasVideo = isPlayableVideoUrl(b.video || "");
   const hasArt = !!(b.image || "").trim();
+  const hasBackdrop = hasVideo || hasArt;
+  const z = Math.min(2.5, Math.max(1, Number(b.zoom) || 1));
+  const pos = b.artpos === "top" || b.artpos === "bottom" ? b.artpos : "center";
+  const contentJustify = b.align === "top" ? "flex-start" : b.align === "bottom" ? "flex-end" : "center";
+  const stageH = Math.min(700, Math.max(280, Math.round(Number(b.stageh) || 460)));
+  const L = b.layout ?? {};
+  const hx = Number(L.hx) || 0;
+  const hy = Number(L.hy) || 0;
+  const cx = Number(L.cx) || 0;
+  const cy = Number(L.cy) || 0;
+  const ax = Number(L.ax) || 0;
+  const ay = Number(L.ay) || 0;
+  const [heroH, setHeroH] = useState(0);
   return (
-    <View style={{ width: W, overflow: "hidden", backgroundColor: "#1B0B4D" }}>
-      {/* stage backdrop — full hero, header included */}
-      {hasVideo ? (
-        <StageAnimation url={(b.video || "").trim()} />
-      ) : hasArt ? (
-        <Img src={(b.image || "").trim()} style={{ position: "absolute", width: "100%", height: "100%" }} />
-      ) : null}
+    <View style={{ width: W, minHeight: stageH, overflow: "hidden", backgroundColor: "#1B0B4D" }} onLayout={(e) => setHeroH(e.nativeEvent.layout.height)}>
+      {/* fitted artwork — pan (top/center/bottom) + zoom, set from the editor */}
+      {hasBackdrop && heroH > 0 && (
+        arrange && editing ? (
+          <Draggable
+            ix={ax}
+            iy={ay}
+            minX={-220}
+            maxX={220}
+            minY={-260}
+            maxY={260}
+            onBegin={() => onDragStart()}
+            onEnd={(x, y) => onMove({ ax: x, ay: y })}
+            style={{
+              position: "absolute",
+              left: (W - W * z) / 2,
+              top: pos === "top" ? 0 : pos === "bottom" ? heroH - heroH * z : (heroH - heroH * z) / 2,
+              width: W * z,
+              height: heroH * z,
+              overflow: "hidden",
+            }}
+          >
+            {hasVideo ? (
+              <ExpoImage source={{ uri: (b.video || "").trim() }} style={{ width: "100%", height: "100%" }} contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <Img src={(b.image || "").trim()} style={{ width: "100%", height: "100%" }} />
+            )}
+          </Draggable>
+        ) : (
+          <View
+            style={{
+              position: "absolute",
+              left: (W - W * z) / 2,
+              top: pos === "top" ? 0 : pos === "bottom" ? heroH - heroH * z : (heroH - heroH * z) / 2,
+              width: W * z,
+              height: heroH * z,
+              overflow: "hidden",
+              transform: [{ translateX: ax }, { translateY: ay }],
+            }}
+          >
+            {hasVideo ? (
+              <ExpoImage source={{ uri: (b.video || "").trim() }} style={{ width: "100%", height: "100%" }} contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <Img src={(b.image || "").trim()} style={{ width: "100%", height: "100%" }} />
+            )}
+          </View>
+        )
+      )}
       <LinearGradient
         colors={hasVideo || hasArt ? ["rgba(10,4,30,.55)", "transparent", "rgba(10,4,30,.45)"] : [b.c1 || th.c1, b.c2 || th.c2, "rgba(20,5,50,.55)"]}
         start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }}
@@ -331,23 +501,62 @@ function ShowcaseHeroCard({ b, header, onTap, onEdit, editing }: { b: ApiHomeBlo
       )}
       {/* motion overlay */}
       <MotionLayer preset={b.anim || "floaters"} theme={b.theme} />
-      {/* header (location + search) + stage content */}
+      {/* header (location + search) + stage content (position set from editor) */}
       {header}
-      <Pressable onPress={onTap} style={{ alignItems: "center", paddingHorizontal: 24, paddingTop: 14, paddingBottom: 6 }}>
-        {!!b.tag && (
-          <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 3, color: "#FFD166" }}>{b.tag.toUpperCase()}</Text>
-        )}
-        <AnimatedHeadline text={b.title || "FESTIVAL"} />
-        {!!b.sub && (
-          <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.9)", textAlign: "center", textShadowColor: "rgba(0,0,0,.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>{b.sub}</Text>
-        )}
-        {!!b.cta && (
-          <View style={{ marginTop: 14, borderRadius: 999, backgroundColor: "#FFE45E", paddingHorizontal: 24, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#1B0B4D" }}>{b.cta}</Text>
-            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#1B0B4D" }}>›</Text>
+      <View style={{ flex: 1, justifyContent: contentJustify }}>
+      <Pressable onPress={arrange ? undefined : onTap} style={{ alignItems: "center", paddingHorizontal: 24, paddingTop: 14, paddingBottom: 6 }}>
+        {arrange && editing ? (
+          <Draggable ix={hx} iy={hy} minX={-170} maxX={170} minY={-200} maxY={200} onBegin={() => onDragStart()} onEnd={(x, y) => onMove({ hx: x, hy: y })} style={{ alignItems: "center" }}>
+            {!!b.tag && (
+              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 3, color: "#FFD166" }}>{b.tag.toUpperCase()}</Text>
+            )}
+            {!!(b.title || "").trim() && (
+              <AnimatedHeadline text={b.title || ""} font={b.font} color={headlineColor(b)} px={headlinePx(b.layout)} />
+            )}
+            {!!b.sub && (
+              <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.9)", textAlign: "center", textShadowColor: "rgba(0,0,0,.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>{b.sub}</Text>
+            )}
+            <View style={{ position: "absolute", top: -14, left: -6, borderRadius: 999, backgroundColor: "rgba(255,255,255,.2)", paddingHorizontal: 10, paddingVertical: 3 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#fff" }}>⠿ drag headline</Text>
+            </View>
+          </Draggable>
+        ) : (
+          <View style={{ alignItems: "center", transform: [{ translateX: hx }, { translateY: hy }] }}>
+            {!!b.tag && (
+              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 3, color: "#FFD166" }}>{b.tag.toUpperCase()}</Text>
+            )}
+            {!!(b.title || "").trim() && (
+              <AnimatedHeadline text={b.title || ""} font={b.font} color={headlineColor(b)} px={headlinePx(b.layout)} />
+            )}
+            {!!b.sub && (
+              <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.9)", textAlign: "center", textShadowColor: "rgba(0,0,0,.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>{b.sub}</Text>
+            )}
           </View>
         )}
+        {!!b.cta && (
+          arrange && editing ? (
+            <View style={{ marginTop: 14, flexDirection: "row", justifyContent: b.ctapos === "left" ? "flex-start" : b.ctapos === "right" ? "flex-end" : "center", width: "100%" }}>
+              <Draggable ix={cx} iy={cy} minX={-180} maxX={180} minY={-200} maxY={200} onBegin={() => onDragStart()} onEnd={(x, y) => onMove({ cx: x, cy: y })}>
+                <View style={{ borderRadius: 999, backgroundColor: b.ctacolor || "#FFE45E", paddingHorizontal: ctaSize(b).padH, paddingVertical: ctaSize(b).padV, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: ctaSize(b).font, color: contrastOn(b.ctacolor || "#FFE45E") }}>{b.cta}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: ctaSize(b).font, color: contrastOn(b.ctacolor || "#FFE45E") }}>›</Text>
+                </View>
+                <View style={{ position: "absolute", top: -18, left: -6, borderRadius: 999, backgroundColor: "rgba(255,255,255,.2)", paddingHorizontal: 10, paddingVertical: 3 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#fff" }}>⠿ drag button</Text>
+                </View>
+              </Draggable>
+            </View>
+          ) : (
+            <View style={{ marginTop: 14, flexDirection: "row", justifyContent: b.ctapos === "left" ? "flex-start" : b.ctapos === "right" ? "flex-end" : "center", width: "100%", transform: [{ translateX: cx }, { translateY: cy }] }}>
+              <View style={{ borderRadius: 999, backgroundColor: b.ctacolor || "#FFE45E", paddingHorizontal: ctaSize(b).padH, paddingVertical: ctaSize(b).padV, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: ctaSize(b).font, color: contrastOn(b.ctacolor || "#FFE45E") }}>{b.cta}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: ctaSize(b).font, color: contrastOn(b.ctacolor || "#FFE45E") }}>›</Text>
+              </View>
+            </View>
+          )
+        )}
       </Pressable>
+      </View>
       {/* stage floor glow */}
       <View style={{ height: 44 }}>
         <LinearGradient colors={["transparent", "rgba(255,60,180,.30)"]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ flex: 1 }} />
@@ -355,6 +564,11 @@ function ShowcaseHeroCard({ b, header, onTap, onEdit, editing }: { b: ApiHomeBlo
       {editing && (
         <Pressable onPress={onEdit} style={{ position: "absolute", right: 12, top: 118, height: 36, width: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 16 }}>✏️</Text>
+        </Pressable>
+      )}
+      {editing && (
+        <Pressable onPress={onToggleArrange} style={{ position: "absolute", left: 12, top: 118, borderRadius: 999, backgroundColor: arrange ? "#D8F34E" : "rgba(255,255,255,.9)", paddingHorizontal: 12, paddingVertical: 8 }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#0B0B0F" }}>{arrange ? "✓ Arrange on — drag items" : "⠿ Arrange"}</Text>
         </Pressable>
       )}
     </View>
@@ -380,6 +594,24 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
    const [versions, setVersions] = useState<ApiHomeVersion[]>([]);
    const [showHistory, setShowHistory] = useState(false);
    const [banner, setBanner] = useState(0);
+   // Arrange mode: drag headline / button / art directly on the stage
+   const [arrange, setArrange] = useState(false);
+   // True while a finger-drag is active — outer scroll locks so the item follows freely
+   const [dragging, setDragging] = useState(false);
+   const saveLayout = (block: ApiHomeBlock, patch: { hx?: number; hy?: number; cx?: number; cy?: number; ax?: number; ay?: number }) => {
+     setDragging(false);
+     const ranges: Record<string, [number, number]> = { hx: [-170, 170], hy: [-200, 200], cx: [-180, 180], cy: [-200, 200], ax: [-220, 220], ay: [-260, 260] };
+     const clean: Record<string, number> = {};
+     for (const [k, v] of Object.entries(patch)) {
+       if (v === undefined || !ranges[k]) continue;
+       clean[k] = Math.min(ranges[k][1], Math.max(ranges[k][0], Math.round(v)));
+     }
+     if (!Object.keys(clean).length) return;
+     const layout = { ...(block.layout ?? {}), ...clean };
+     set({ homeBlocks: useOSB.getState().homeBlocks.map((h) => (h.id === block.id ? { ...h, layout } : h)) });
+     // No full re-sync (would flash) — publish snapshots the saved layout.
+     void apiAdminPatchHomeBlock(block.id, { layout }).catch(() => {});
+   };
   const [locOpen, setLocOpen] = useState(false);
   const bannerRef = useRef<ScrollView>(null);
 
@@ -420,15 +652,15 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
 
   const catStoreIds = new Set(filtered.map((s) => s.id));
   const quickPicks = activeCat
-    ? products.filter((p) => catStoreIds.has(p.storeId)).slice(0, 12)
-    : products.filter((p) => ["Vegetables", "Fruits", "Dairy", "Staples", "Bakery", "Sweets", "Ice Cream", "Pharmacy"].includes(p.category)).slice(0, 12);
+    ? inStockFirst(products.filter((p) => catStoreIds.has(p.storeId))).slice(0, 12)
+    : inStockFirst(products.filter((p) => ["Vegetables", "Fruits", "Dairy", "Staples", "Bakery", "Sweets", "Ice Cream", "Pharmacy"].includes(p.category))).slice(0, 12);
   const grocery = quickPicks;
   const restList = filtered.slice(0, 10);
 
   const banners: Banner[] = useMemo(() => {
     // Admin CMS live banners (default home view). Category filter pe purana auto-logic.
     if (!activeCat) {
-      const live = homeBlocks.filter((b) => b.kind === "banner" && slotOf(b) === "banners");
+      const live = homeBlocks.filter((b) => b.kind === "banner" && slotOf(b) === "banners" && hasCardContent(b));
       if (live.length > 0) return live.map((b, i) => blockToBanner(b, i));
       return DEFAULT_BANNERS;
     }
@@ -463,41 +695,53 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
     return base;
   }, [activeCat, filtered, homeBlocks]);
 
-  // Banner tap → admin link (store/category/search), warna kuch nahi.
-  const tapBanner = (b: Banner) => {    const v = (b.linkValue || "").trim();
+  // Banner tap → admin link. Never dead: bad store/category falls back to search.
+  const tapBanner = (b: Banner) => {
+    const v = (b.linkValue || "").trim();
     if (!v || b.linkKind === "none") return;
+    const fallbackSearch = () => set({ query: v, tab: "search" });
     if (b.linkKind === "store") {
-      const hit = stores.find((s) => s.id === v || s.slug === v || s.name.toLowerCase() === v.toLowerCase());
+      const lv = v.toLowerCase();
+      const hit = stores.find(
+        (s) => s.id === v || s.slug === v || s.name.toLowerCase() === lv || s.name.toLowerCase().includes(lv) || lv.includes(s.name.toLowerCase())
+      );
       if (hit) onStore(hit.id);
+      else fallbackSearch();
     } else if (b.linkKind === "category") {
-      set({ category: v });
+      const ok = allCats.some((c) => c.k === v);
+      if (ok) set({ category: v });
+      else fallbackSearch();
     } else if (b.linkKind === "search") {
-      set({ query: v, tab: "search" });
+      fallbackSearch();
     }
     blip(700);
   };
 
   const liveFestival = !activeCat && showFestival ? homeBlocks.find((b) => b.kind === "festival") : undefined;
   const festivalTheme = FESTIVAL_THEMES[liveFestival?.theme ?? "none"] ?? FESTIVAL_THEMES.none;
-  const topBars = !activeCat ? homeBlocks.filter((b) => slotOf(b) === "top").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)) : [];
+  const topBars = !activeCat ? homeBlocks.filter((b) => slotOf(b) === "top" && ((b.title || "").trim() || (b.cta || "").trim())).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)) : [];
   const showcaseBlocks = !activeCat ? homeBlocks.filter((b) => b.kind === "showcase").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)) : [];
   const [showcaseIdx, setShowcaseIdx] = useState(0);
   const showcaseRef = useRef<ScrollView>(null);
-  const liveStripTitles = !activeCat && showStrips ? homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "") : [];
+  const liveStripTitles = !activeCat && showStrips ? homeBlocks.filter((b) => b.kind === "strip" && (b.title || "").trim()).map((b) => b.title || "") : [];
   const stripTitles = liveStripTitles.length > 0 ? liveStripTitles : String(cfg.stripsDefault || "").split("|").map((s) => s.trim()).filter(Boolean);
   // Banner cards ↔ CMS blocks mapping (edit badge needs the right block)
   const liveBannerBlocks: (ApiHomeBlock | null)[] = useMemo(() => {
     if (activeCat) return banners.map(() => null);
-    const live = homeBlocks.filter((b) => b.kind === "banner" && slotOf(b) === "banners");
+    const live = homeBlocks.filter((b) => b.kind === "banner" && slotOf(b) === "banners" && hasCardContent(b));
     return banners.map((_, i) => live[i] ?? null);
   }, [banners, homeBlocks, activeCat]);
   const midCards = useMemo(() => {
     if (activeCat || !showAds) return [];
-    return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "mid").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+    return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "mid" && hasCardContent(b)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
   }, [homeBlocks, activeCat, showAds]);
   const bottomCards = useMemo(() => {
     if (activeCat || !showAds) return [];
-    return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "bottom").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+    return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "bottom" && hasCardContent(b)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  }, [homeBlocks, activeCat, showAds]);
+  const feedAds = useMemo(() => {
+    if (activeCat || !showAds) return [];
+    return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "feed" && hasCardContent(b)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
   }, [homeBlocks, activeCat, showAds]);
   const editing = isSuper && homeEditMode && !activeCat;
   const heroLive = !activeCat && showcaseBlocks.length > 0;
@@ -551,9 +795,9 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
     </View>
   );
 
-  // Auto-advance banner carousel; reset index when category changes so old index doesn't atak jaaye.
+  // Auto-advance banner carousel (paused in arrange mode so the canvas stays still).
   useEffect(() => {
-    if (banners.length < 2) return;
+    if (arrange || banners.length < 2) return;
     const t = setInterval(() => {
       setBanner((b) => {
         const next = (b + 1) % banners.length;
@@ -562,7 +806,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
       });
     }, 3800);
     return () => clearInterval(t);
-  }, [step, banners.length]);
+  }, [step, banners.length, arrange]);
 
   useEffect(() => {
     setBanner(0);
@@ -591,7 +835,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             </Pressable>
           </View>
         )}
-       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
+       <ScrollView showsVerticalScrollIndicator={false} scrollEnabled={!dragging && !arrange} contentContainerStyle={{ paddingBottom: 160 }}>
         {/* Festive hero — header (location + search) lives INSIDE the stage (Zomato style) */}
         {(showcaseBlocks.length > 0 || editing) && (
           <View style={{ position: "relative" }}>
@@ -601,7 +845,8 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                   ref={showcaseRef}
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  pagingEnabled
+                  pagingEnabled={!arrange}
+                  scrollEnabled={!arrange}
                   snapToInterval={W}
                   snapToAlignment="start"
                   decelerationRate="fast"
@@ -612,9 +857,13 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                       key={b.id}
                       b={b}
                       editing={editing}
+                      arrange={arrange}
                       header={<>{renderLocationRow(true)}{renderSearchRow(true)}</>}
                       onTap={() => tapBanner(blockToBanner(b, 0))}
                       onEdit={() => setEditTarget({ t: "block", block: b })}
+                      onMove={(patch) => saveLayout(b, patch)}
+                      onToggleArrange={() => { setArrange(!arrange); blip(600); }}
+                      onDragStart={() => setDragging(true)}
                     />
                   ))}
                 </ScrollView>
@@ -765,7 +1014,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                   <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: "#D8F34E", paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: "#111114" }}>{b.tag}</Text>
                   </View>
-                  <Text style={{ marginTop: 6, fontFamily: F.display, fontSize: 24, lineHeight: 25, color: "#fff" }}>{b.title}</Text>
+                  <Text style={{ marginTop: 6, fontFamily: cardTitleFamily(b), fontSize: 24, lineHeight: 25, color: b.tcolor || "#fff" }}>{b.title}</Text>
                   <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.8)" }}>{b.sub}</Text>
                   <View style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 6 }}>
                     <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{b.cta} →</Text>
@@ -890,7 +1139,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               {midCards.map((a) => (
                 <View key={a.id} style={{ position: "relative" }}>
                 <SpringBtn onPress={() => (editing ? setEditTarget({ t: "block", block: a }) : tapBanner(blockToBanner(a, 1)))} style={{ width: cardW, height: 120, borderRadius: 20, overflow: "hidden" }}>
-                  {a.image ? <Img src={a.image} style={{ position: "absolute", width: "100%", height: "100%" }} /> : <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />}
+                  <CardMedia b={a} />
                   <LinearGradient colors={[a.c1 || "rgba(10,10,10,.8)", "rgba(10,10,10,.1)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
                   <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
                     {a.tag ? (
@@ -898,7 +1147,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                         <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: "#111114" }}>{a.tag.toUpperCase()}</Text>
                       </View>
                     ) : null}
-                    <Text style={{ marginTop: 6, fontFamily: F.display, fontSize: 21, lineHeight: 23, color: "#fff" }}>{a.title}</Text>
+                    <Text style={{ marginTop: 6, fontFamily: cardTitleFamily(a), fontSize: 21, lineHeight: 23, color: a.tcolor || "#fff" }}>{a.title}</Text>
                     {a.sub ? <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{a.sub}</Text> : null}
                     {a.cta ? (
                       <View style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 6 }}>
@@ -942,7 +1191,17 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         )}
 
         {/* rails */}
-        {!activeCat && <CategoryRails cats={allCats} onStore={onStore} />}
+        {!activeCat && (
+          <CategoryRails
+            cats={allCats}
+            onStore={onStore}
+            feedAds={feedAds}
+            editing={editing}
+            onTapAd={(b) => tapBanner(blockToBanner(b, 1))}
+            onEditAd={(b) => setEditTarget({ t: "block", block: b })}
+            onAddFeed={() => setEditTarget({ t: "new", kind: "ad", slot: "feed" })}
+          />
+        )}
 
         {/* Festival spotlight — seasonal theme (Diwali / Christmas / Holi…) */}
         {showFestival && (
@@ -956,7 +1215,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                 <Text style={{ fontSize: 12 }}>{festivalTheme.emoji}</Text>
                 <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>{(liveFestival?.tag || cfg.festivalTitle || "FESTIVAL").toUpperCase()}</Text>
               </View>
-              <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 21, lineHeight: 26, color: "#fff" }}>{liveFestival?.title || cfg.festivalTitle || "Festive picks for you"}{"\n"}{liveFestival?.sub || cfg.festivalSub || ""}</Text>
+              <Text style={{ marginTop: 4, fontFamily: cardTitleFamily(liveFestival ?? { font: "serif" }), fontSize: 21, lineHeight: 26, color: liveFestival?.tcolor || "#fff" }}>{liveFestival?.title || cfg.festivalTitle || "Festive picks for you"}{"\n"}{liveFestival?.sub || cfg.festivalSub || ""}</Text>
               <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
                 <View style={{ borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 8 }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || cfg.festivalCta || "Shop now"}</Text>
@@ -981,7 +1240,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               {bottomCards.map((a) => (
                 <View key={a.id} style={{ position: "relative" }}>
                 <SpringBtn onPress={() => (editing ? setEditTarget({ t: "block", block: a }) : tapBanner(blockToBanner(a, 1)))} style={{ width: cardW, height: 120, borderRadius: 20, overflow: "hidden" }}>
-                  {a.image ? <Img src={a.image} style={{ position: "absolute", width: "100%", height: "100%" }} /> : <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />}
+                  <CardMedia b={a} />
                   <LinearGradient colors={[a.c1 || "rgba(10,10,10,.8)", "rgba(10,10,10,.1)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
                   <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
                     {!!a.tag && (
@@ -989,7 +1248,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                         <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: "#111114" }}>{a.tag.toUpperCase()}</Text>
                       </View>
                     )}
-                    <Text style={{ marginTop: 6, fontFamily: F.display, fontSize: 21, lineHeight: 23, color: "#fff" }}>{a.title}</Text>
+                    <Text style={{ marginTop: 6, fontFamily: cardTitleFamily(a), fontSize: 21, lineHeight: 23, color: a.tcolor || "#fff" }}>{a.title}</Text>
                     {!!a.sub && <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{a.sub}</Text>}
                     {!!a.cta && (
                       <View style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 6 }}>
@@ -1097,6 +1356,59 @@ function HomePublishBar({ note, setNote, versions, setVersions, showHistory, set
   );
 }
 
+/* Link target picker — full store / category lists, tap to select (no typing,
+   no dead buttons). Search keeps a free keyword input. */
+function LinkValuePicker({ linkKind, linkValue, setLinkValue }: { linkKind: string; linkValue: string; setLinkValue: (v: string) => void }) {
+  const { colors } = useTheme();
+  const { stores } = useMarketplace();
+  const cats = activeCategories();
+  const input = { borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13.5, color: colors.ink } as const;
+  if (linkKind === "search") {
+    return (
+      <TextInput value={linkValue} onChangeText={setLinkValue} placeholder="Search keyword  e.g. biryani" placeholderTextColor={colors.ink3} style={input} />
+    );
+  }
+  if (linkKind === "category") {
+    return (
+      <View style={{ gap: 6 }}>
+        <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>Pick a category — tap opens it. {cats.length} available.</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {cats.map((c) => {
+            const on = linkValue === c.k;
+            return (
+              <Pressable key={c.k} onPress={() => { setLinkValue(c.k); blip(600); }} style={{ flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: on ? "#0C831F" : colors.card2 }}>
+                <Text style={{ fontSize: 12 }}>{c.emoji}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 11, color: on ? "#fff" : colors.ink2 }}>{c.t}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>Pick a store — tap opens it. {stores.length} available.</Text>
+      <ScrollView nestedScrollEnabled style={{ maxHeight: 190, borderRadius: 12, backgroundColor: colors.card2 }} contentContainerStyle={{ gap: 2, padding: 6 }}>
+        {stores.map((s) => {
+          const key = s.slug || s.id;
+          const on = linkValue === key || linkValue === s.id || linkValue.toLowerCase() === s.name.toLowerCase();
+          return (
+            <Pressable key={s.id} onPress={() => { setLinkValue(key); blip(600); }} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: on ? "#0C831F" : "transparent" }}>
+              <Text style={{ fontSize: 18 }}>{s.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: on ? "#fff" : colors.ink }}>{s.name}</Text>
+                <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 10.5, color: on ? "rgba(255,255,255,.8)" : colors.ink3 }}>{s.tagline}</Text>
+              </View>
+              {on && <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>✓</Text>}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 type EditTarget = null | { t: "block"; block: ApiHomeBlock } | { t: "texts" } | { t: "strips" } | { t: "new"; kind: ApiHomeBlock["kind"]; slot: string };
 
 const SHEET_KINDS = [
@@ -1132,6 +1444,17 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
   const [linkValue, setLinkValue] = useState<string>(srcBlock?.linkValue || "");
   const [video, setVideo] = useState<string>(srcBlock?.video || "");
   const [anim, setAnim] = useState<string>(srcBlock?.anim || "floaters");
+  const [fit, setFit] = useState<string>(srcBlock?.fit || "cover");
+  const [font, setFont] = useState<string>(srcBlock?.font || "serif");
+  const [tcolor, setTcolor] = useState<string>(srcBlock?.tcolor || "");
+  const [hsize, setHsize] = useState<string>((srcBlock?.layout as { hs?: string } | undefined)?.hs || "m");
+  const [artpos, setArtpos] = useState<string>(srcBlock?.artpos || "center");
+  const [zoom, setZoom] = useState<number>(Number(srcBlock?.zoom) || 1);
+  const [align, setAlign] = useState<string>(srcBlock?.align || "center");
+  const [stageh, setStageh] = useState<number>(Number(srcBlock?.stageh) || 460);
+  const [ctapos, setCtapos] = useState<string>(srcBlock?.ctapos || "center");
+  const [ctasize, setCtasize] = useState<string>(srcBlock?.ctasize || "m");
+  const [ctacolor, setCtacolor] = useState<string>(srcBlock?.ctacolor || "#FFE45E");
   const [startsAt, setStartsAt] = useState<string>((srcBlock?.startsAt || "").slice(0, 10));
   const [endsAt, setEndsAt] = useState<string>((srcBlock?.endsAt || "").slice(0, 10));
   const [texts, setTexts] = useState<Record<string, string>>({ ...cfg });
@@ -1145,12 +1468,18 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
   const input = { borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13.5, color: colors.ink } as const;
 
   const saveBlock = () => {
-    if (!title.trim()) { Alert.alert("Title required", "Give this card a headline — it is the biggest text on the card."); return; }
+    if (kind === "strip" && !title.trim()) { Alert.alert("Text required", "The ticker line is the whole card — write the offer text."); return; }
+    // Title is optional for all other cards (art-only banners are valid).
     const patch = {
       kind, slot: kind === "showcase" ? "top" : slot, theme,
       tag: tag.trim(), title: title.trim(), sub: sub.trim(), cta: cta.trim(),
-      image: image.trim(), c1, video: video.trim(), anim,
-      linkKind, linkValue: linkValue.trim(),
+      image: image.trim(), c1, video: video.trim(), anim, font, fit,
+      tcolor: /^#[0-9a-fA-F]{6}$/.test(tcolor.trim()) ? tcolor.trim() : "",
+      artpos, zoom, align, stageh, ctapos, ctasize, ctacolor,
+      layout: { ...((target.t === "block" ? target.block.layout : {}) ?? {}), hs: ["s", "m", "l"].includes(hsize) ? hsize : "m" },
+      // Empty target with a picked action = dead button → fall back to no action.
+      linkKind: linkValue.trim() ? linkKind : "none",
+      linkValue: linkValue.trim(),
       startsAt: startsAt.trim() ? new Date(`${startsAt.trim()}T00:00:00`).toISOString() : null,
       endsAt: endsAt.trim() ? new Date(`${endsAt.trim()}T00:00:00`).toISOString() : null,
     };
@@ -1263,15 +1592,70 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                   </View>
                 </>
               )}
-              <TextInput value={title} onChangeText={setTitle} placeholder={kind === "showcase" ? "Stage headline *  e.g. MONTH END" : "Headline *  e.g. 50% OFF Biryani"} placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={title} onChangeText={setTitle} placeholder={kind === "showcase" ? "Stage headline (optional)  e.g. MONTH END" : kind === "strip" ? "Ticker text *  e.g. 50% OFF up to ₹100" : "Headline (optional)  e.g. 50% OFF Biryani"} placeholderTextColor={colors.ink3} style={input} />
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Headline font</Text>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {HEADLINE_FONTS.map((f) => (
+                  <Pressable key={f.k} onPress={() => { setFont(f.k); blip(600); }} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: font === f.k ? "#0B0B0F" : colors.card2 }}>
+                    <Text style={{ fontFamily: f.family, fontSize: 14, fontStyle: f.italic ? "italic" : "normal", color: font === f.k ? "#D8F34E" : colors.ink2 }}>Ag</Text>
+                    <Text style={{ fontFamily: F.extra, fontSize: 10, color: font === f.k ? "#D8F34E" : colors.ink2 }}>{f.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Headline colour</Text>
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                {HEADLINE_COLORS.map((cc) => (
+                  <Pressable key={cc} onPress={() => { setTcolor(tcolor === cc ? "" : cc); blip(600); }} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: cc, borderWidth: tcolor === cc ? 3 : 1, borderColor: tcolor === cc ? "#0C831F" : colors.line }} />
+                ))}
+                <Pressable onPress={() => setTcolor("")} style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: !tcolor ? "#0C831F" : colors.card2 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: !tcolor ? "#fff" : colors.ink2 }}>Auto</Text>
+                </Pressable>
+              </View>
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Headline size (bigger / smaller)</Text>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {HEADLINE_SIZES.map((s) => (
+                  <Pressable key={s.k} onPress={() => { setHsize(s.k); blip(600); }} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: hsize === s.k ? "#0B0B0F" : colors.card2 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: s.k === "s" ? 11 : s.k === "l" ? 16 : 13, color: hsize === s.k ? "#D8F34E" : colors.ink2 }}>{s.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Tip: for exact placement, tap “Arrange” on the banner and drag the headline, button or art with your finger.</Text>
               {kind !== "strip" && (
                 <>
                   <TextInput value={tag} onChangeText={setTag} placeholder={kind === "showcase" ? "Small kicker (optional)" : "Eyebrow tag  e.g. FESTIVE SALE"} placeholderTextColor={colors.ink3} style={input} />
                   <TextInput value={sub} onChangeText={setSub} placeholder={kind === "showcase" ? "One-line subtext (optional)" : "Subline  e.g. Code BAZAR50 · Free delivery"} placeholderTextColor={colors.ink3} style={input} />
               <TextInput value={cta} onChangeText={setCta} placeholder={kind === "showcase" ? "Pill button  e.g. Order now" : "Button label  e.g. Order now"} placeholderTextColor={colors.ink3} style={input} />
-              {kind === "showcase" && (
+              <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Tapping the button (or the whole card) opens whatever you pick in “On tap — open” below.</Text>
+              {(kind === "showcase") && (
                 <>
-                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Background animation (plays instantly)</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Button style — position, size, colour</Text>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Position</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[["left", "Left"], ["center", "Center"], ["right", "Right"]].map(([k, label]) => (
+                      <Pressable key={k} onPress={() => { setCtapos(k); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: ctapos === k ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: ctapos === k ? "#fff" : colors.ink2 }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Size</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[["s", "Small"], ["m", "Medium"], ["l", "Large"]].map(([k, label]) => (
+                      <Pressable key={k} onPress={() => { setCtasize(k); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: ctasize === k ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: ctasize === k ? "#fff" : colors.ink2 }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Colour (text auto-adjusts)</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {CTA_COLORS.map((cc) => (
+                      <Pressable key={cc} onPress={() => { setCtacolor(cc); blip(600); }} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: cc, borderWidth: ctacolor === cc ? 3 : 1, borderColor: ctacolor === cc ? "#0C831F" : colors.line }} />
+                    ))}
+                  </View>
+                </>
+              )}
+              {(kind === "showcase" || kind === "ad") && (
+                <>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{kind === "ad" ? "Video animation (GIF — plays on the card)" : "Background animation (plays instantly)"}</Text>
                   <TextInput value={video} onChangeText={setVideo} placeholder="Direct .gif link  https://…/file.gif" placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
                   <Pressable onPress={() => { setVideo(DIWALI_GIF_PRESET); blip(700); }} style={{ borderRadius: 10, backgroundColor: "#0B0B0F", paddingVertical: 10, alignItems: "center" }}>
                     <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#D8F34E" }}>Use Diwali fireworks preset</Text>
@@ -1282,6 +1666,40 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                   {!!video.trim() && isMp4Url(video) && (
                     <Text style={{ fontFamily: F.semi, fontSize: 11, color: "#E8830C" }}>MP4 video is not supported in the current build — use a GIF link instead, it plays instantly with no app update.</Text>
                   )}
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Artwork fit — slide & expand</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Move the art up/down and zoom in until it sits perfectly. No fixed template.</Text>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Stage height (GIF size)</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[[340, "Compact"], [460, "Standard"], [600, "Grand"]].map(([hv, label]) => (
+                      <Pressable key={label as string} onPress={() => { setStageh(hv as number); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: stageh === hv ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: stageh === hv ? "#fff" : colors.ink2 }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Position</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[["top", "Top"], ["center", "Center"], ["bottom", "Bottom"]].map(([k, label]) => (
+                      <Pressable key={k} onPress={() => { setArtpos(k); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: artpos === k ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: artpos === k ? "#fff" : colors.ink2 }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Zoom</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[1, 1.25, 1.5, 2].map((zv) => (
+                      <Pressable key={zv} onPress={() => { setZoom(zv); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: zoom === zv ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: zoom === zv ? "#fff" : colors.ink2 }}>{zv}x</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>Text block</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[["top", "Top"], ["center", "Middle"], ["bottom", "Bottom"]].map(([k, label]) => (
+                      <Pressable key={k} onPress={() => { setAlign(k); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: align === k ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: align === k ? "#fff" : colors.ink2 }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
                   <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Paste an animated GIF and it plays full-screen behind the header — no app update needed. Blank template guide — canvas 1080 × 1400 px: keep the main art in the middle band, headline sits in the upper third, pill button near the bottom. Location + search overlay the top automatically.</Text>
                   <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Motion overlay (auto-fits over video or art)</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
@@ -1295,6 +1713,21 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                 </>
               )}
               <TextInput value={image} onChangeText={setImage} placeholder={kind === "showcase" ? "Backdrop art URL (fallback/poster under video)" : "Image URL  https://…"} placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
+              {(kind === "ad" || kind === "banner") && (
+                <>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Media fit — big GIFs</Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable onPress={() => { setFit("cover"); blip(600); }} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: fit !== "contain" ? "#0B0B0F" : colors.card2 }}>
+                      <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: fit !== "contain" ? "#D8F34E" : colors.ink2 }}>Fill card</Text>
+                      <Text style={{ fontFamily: F.medium, fontSize: 9.5, color: fit !== "contain" ? "rgba(216,243,78,.7)" : colors.ink3 }}>Crops edges</Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setFit("contain"); blip(600); }} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: fit === "contain" ? "#0B0B0F" : colors.card2 }}>
+                      <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: fit === "contain" ? "#D8F34E" : colors.ink2 }}>Show full GIF</Text>
+                      <Text style={{ fontFamily: F.medium, fontSize: 9.5, color: fit === "contain" ? "rgba(216,243,78,.7)" : colors.ink3 }}>Nothing cropped</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
                 </>
               )}
               <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Background tint</Text>
@@ -1306,7 +1739,7 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
               {/* Live preview */}
               <View style={{ borderRadius: 14, overflow: "hidden", backgroundColor: c1, minHeight: 90, justifyContent: "center", padding: 14 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: "#F8CB46" }}>{(tag || "TAG").toUpperCase()}</Text>
-                <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>{title || "Your headline appears here…"}</Text>
+                <Text style={{ fontFamily: headlineFont({ font }).family, fontStyle: headlineFont({ font }).italic ? "italic" : "normal", fontSize: 16, color: tcolor || "#fff" }}>{title || "Your headline appears here…"}</Text>
                 {!!sub && <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{sub}</Text>}
               </View>
               <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>On tap — open</Text>
@@ -1318,7 +1751,7 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                 ))}
               </View>
               {(linkKind === "store" || linkKind === "category" || linkKind === "search") && (
-                <TextInput value={linkValue} onChangeText={setLinkValue} placeholder={linkKind === "store" ? "Store slug or name" : linkKind === "category" ? "Category key" : "Search keyword  e.g. biryani"} placeholderTextColor={colors.ink3} style={input} />
+                <LinkValuePicker linkKind={linkKind} linkValue={linkValue} setLinkValue={setLinkValue} />
               )}
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput value={startsAt} onChangeText={setStartsAt} placeholder="Start  YYYY-MM-DD" placeholderTextColor={colors.ink3} style={[input, { flex: 1 }]} />
@@ -1378,19 +1811,72 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
   );
 }
 
+/* Card media — GIF/image with Fill (crop) or Full (whole GIF visible) fit. */
+function CardMedia({ b }: { b: ApiHomeBlock }) {
+  const gif = isPlayableVideoUrl(b.video || "");
+  const src = (gif ? b.video || "" : b.image || "").trim();
+  if (!src) return <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />;
+  const contain = b.fit === "contain";
+  return (
+    <>
+      {contain && <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: b.c1 || "#0E3B2E" }} />}
+      <ExpoImage source={{ uri: src }} style={{ position: "absolute", width: "100%", height: "100%" }} contentFit={contain ? "contain" : "cover"} cachePolicy="memory-disk" />
+    </>
+  );
+}
+
+/* ── In-feed promo (banner / video ad between store sections, Swiggy style) ── */
+function FeedPromoCard({ b, editing, onTap, onEdit }: { b: ApiHomeBlock; editing: boolean; onTap: () => void; onEdit: () => void }) {
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ position: "relative" }}>
+        <Pressable onPress={onTap} style={{ height: 140, borderRadius: 20, overflow: "hidden", backgroundColor: "#0E3B2E" }}>
+          <CardMedia b={b} />
+          <LinearGradient colors={[b.c1 || "rgba(10,10,10,.8)", "rgba(10,10,10,.1)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
+          <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+            {!!b.tag && (
+              <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: "#F8CB46", paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: "#111114" }}>{b.tag.toUpperCase()}</Text>
+              </View>
+            )}
+            {!!b.title && <Text style={{ marginTop: 6, fontFamily: cardTitleFamily(b), fontSize: 20, lineHeight: 22, color: b.tcolor || "#fff" }}>{b.title}</Text>}
+            {!!b.sub && <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{b.sub}</Text>}
+            {!!b.cta && (
+              <View style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 6 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{b.cta} →</Text>
+              </View>
+            )}
+          </View>
+        </Pressable>
+        {editing && (
+          <Pressable onPress={onEdit} style={{ position: "absolute", right: 8, top: 8, height: 34, width: 34, borderRadius: 17, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 15 }}>✏️</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
 /* ── CategoryRails ── */
-export function CategoryRails({ cats, onStore }: { cats: CategoryDef[]; onStore: (id: string) => void }) {
+export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEditAd, onAddFeed }: {
+  cats: CategoryDef[]; onStore: (id: string) => void;
+  feedAds?: ApiHomeBlock[]; editing?: boolean;
+  onTapAd?: (b: ApiHomeBlock) => void; onEditAd?: (b: ApiHomeBlock) => void; onAddFeed?: () => void;
+}) {
   const set = useOSB((s) => s.set);
   const { colors } = useTheme();
   const { stores: allStores, products: allProducts } = useMarketplace();
   return (
     <View>
-      {cats.map((c) => {
+      {cats.map((c, ci) => {
         const stores = allStores.filter((s) => c.kinds.includes(s.kind)).slice(0, 6);
         const ids = new Set(stores.map((s) => s.id));
-        const products = allProducts.filter((p) => ids.has(p.storeId)).slice(0, 8);
+        const products = inStockFirst(allProducts.filter((p) => ids.has(p.storeId))).slice(0, 8);
+        const feed = feedAds?.[ci];
         return (
-          <View key={c.k} style={{ paddingTop: 20 }}>
+          <View key={c.k}>
+          <View style={{ paddingTop: 20 }}>
             <Pressable onPress={() => set({ category: c.k })} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <View style={{ height: 36, width: 36, borderRadius: 12, overflow: "hidden", backgroundColor: `${c.accent}18`, alignItems: "center", justifyContent: "center" }}>
@@ -1462,6 +1948,26 @@ export function CategoryRails({ cats, onStore }: { cats: CategoryDef[]; onStore:
               </Pressable>
             </ScrollView>
           </View>
+          {/* in-feed ad after this section (slot=feed) */}
+          {!!feed && (
+            <FeedPromoCard
+              b={feed}
+              editing={!!editing}
+              onTap={() => (editing ? onEditAd?.(feed) : onTapAd?.(feed))}
+              onEdit={() => onEditAd?.(feed)}
+            />
+          )}
+          {editing && !feed && (
+            <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12 }}>
+              <Pressable onPress={onAddFeed} style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, paddingVertical: 10, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>+ Banner ad here</Text>
+              </Pressable>
+              <Pressable onPress={onAddFeed} style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, paddingVertical: 10, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>+ Video ad here</Text>
+              </Pressable>
+            </View>
+          )}
+          </View>
         );
       })}
     </View>
@@ -1477,15 +1983,21 @@ export function BlinkitCard({ pid, index }: { pid: string; index: number }) {
   const decCart = useOSB((s) => s.decCart);
   const { colors } = useTheme();
   if (!p) return null;
+  const out = isOutOfStock(p);
   const qty = cart.find((c) => c.productId === pid)?.qty ?? 0;
   const store = stores.find((s) => s.id === p.storeId);
   const off = p.mrp ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0;
   const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: store?.name ?? "", unit: p.unit, tint: p.tint } as never;
   return (
-    <Animated.View entering={FadeIn.delay(Math.min(index * 40, 250))} style={{ width: 138, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
+    <Animated.View entering={FadeIn.delay(Math.min(index * 40, 250))} style={{ width: 138, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden", opacity: out ? 0.75 : 1 }}>
       <View style={{ position: "relative", height: 118, backgroundColor: "#F6F6F6" }}>
         <Img src={p.image} style={{ width: "100%", height: "100%" }} />
-        {off > 0 && (
+        {out && (
+          <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.5, color: "#fff" }}>OUT OF STOCK</Text>
+          </View>
+        )}
+        {!out && off > 0 && (
           <View style={{ position: "absolute", left: 6, top: 6, borderRadius: 6, backgroundColor: "#256FEF", paddingHorizontal: 6, paddingVertical: 2 }}>
             <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#fff" }}>{off}% OFF</Text>
           </View>
@@ -1508,7 +2020,13 @@ export function BlinkitCard({ pid, index }: { pid: string; index: number }) {
             <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>₹{p.price}</Text>
             {p.mrp && <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3, textDecorationLine: "line-through" }}>₹{p.mrp}</Text>}
           </View>
-          <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
+          {out ? (
+            <View style={{ borderRadius: 8, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 6 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>OUT OF{"\n"}STOCK</Text>
+            </View>
+          ) : (
+            <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
+          )}
         </View>
       </View>
     </Animated.View>
@@ -1605,7 +2123,7 @@ export function SearchTab() {
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    const ps = products.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)).slice(0, 6);
+    const ps = inStockFirst(products.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))).slice(0, 6);
     const ss = stores.filter((s) => s.name.toLowerCase().includes(q) || s.tags.join(" ").toLowerCase().includes(q)).slice(0, 4);
     return [...ps.map((p) => ({ t: "product" as const, p })), ...ss.map((s) => ({ t: "store" as const, s }))];
   }, [query, stores, products]);
@@ -1705,6 +2223,11 @@ export function SearchTab() {
                 </Text>
               </View>
               {r.t === "product" ? (
+                isOutOfStock(r.p) ? (
+                  <View style={{ borderRadius: 8, backgroundColor: colors.chip, paddingHorizontal: 10, paddingVertical: 7 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>OUT OF STOCK</Text>
+                  </View>
+                ) : (
                 <AddStepper
                   small
                   qty={cart.find((c) => c.productId === r.p.id)?.qty ?? 0}
@@ -1712,6 +2235,7 @@ export function SearchTab() {
                   onInc={() => addToCart({ productId: r.p.id, name: r.p.name, emoji: r.p.emoji, image: r.p.image, price: r.p.price, qty: 1, storeId: r.p.storeId, storeName: "", unit: r.p.unit, tint: r.p.tint } as never)}
                   onDec={() => decCart(r.p.id)}
                 />
+                )
               ) : (
                 <ChevronRight size={16} color={colors.ink3} style={{ opacity: 0.4 }} />
               )}
@@ -2083,7 +2607,7 @@ export function ProfileTab() {
 export function StoreSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const { stores, products } = useMarketplace();
   const s = stores.find((x) => x.id === id);
-  const menu = products.filter((p) => p.storeId === id);
+  const menu = inStockFirst(products.filter((p) => p.storeId === id));
   useSheetBackCloser(!!s, onClose);
   const cart = useOSB((x) => x.cart);
   const addToCart = useOSB((x) => x.addToCart);
@@ -2158,6 +2682,7 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
             <View style={{ marginTop: 10, gap: 12 }}>
               {menu.map((p, i) => {
                 const qty = cart.find((c) => c.productId === p.id)?.qty ?? 0;
+                const out = isOutOfStock(p);
                 const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: s.name, unit: p.unit, tint: p.tint } as never;
                 return (
                   <Animated.View key={p.id} entering={FadeIn.delay(Math.min(i * 40, 300))} style={{ marginBottom: 8, flexDirection: "row", gap: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 10 }}>
@@ -2182,16 +2707,27 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
                       <Text numberOfLines={2} style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, lineHeight: 16, color: colors.ink2 }}>{p.description}</Text>
                     </View>
                     <View style={{ width: 118 }}>
-                      <View style={{ position: "relative", height: 104, width: 118, borderRadius: 14, backgroundColor: "#f2f2f2", overflow: "hidden" }}>
+                      <View style={{ position: "relative", height: 104, width: 118, borderRadius: 14, backgroundColor: "#f2f2f2", overflow: "hidden", opacity: out ? 0.6 : 1 }}>
                         <Img src={p.image} style={{ width: "100%", height: "100%" }} />
                         {(p.images?.length ?? 0) > 1 && (
                           <View style={{ position: "absolute", right: 6, top: 6, borderRadius: 6, backgroundColor: "rgba(0,0,0,.65)", paddingHorizontal: 6, paddingVertical: 2 }}>
                             <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>📷 {p.images!.length}</Text>
                           </View>
                         )}
+                        {out && (
+                          <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>OUT OF STOCK</Text>
+                          </View>
+                        )}
                       </View>
                       <View style={{ position: "absolute", bottom: 22, left: "50%", marginLeft: -36 }}>
-                        <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
+                        {out ? (
+                          <View style={{ borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 7 }}>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>OUT OF STOCK</Text>
+                          </View>
+                        ) : (
+                          <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
+                        )}
                       </View>
                       <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{p.unit} • customizable</Text>
                     </View>

@@ -236,9 +236,12 @@ adminRoute.patch("/categories/:id", auth, async (c: any) => {
 
 const HOME_KINDS = ["banner", "festival", "ad", "strip", "showcase"];
 const HOME_LINKS = ["none", "store", "category", "search"];
-const HOME_SLOTS = ["top", "banners", "strips", "mid", "festival", "bottom"];
+const HOME_SLOTS = ["top", "banners", "strips", "mid", "festival", "bottom", "feed"];
 const HOME_THEMES = ["none", "concert", "diwali", "christmas", "holi", "newyear", "monsoon"];
 const HOME_ANIMS = ["floaters", "confetti", "spotlight", "none"];
+const HOME_FONTS = ["serif", "heavy", "bold"];
+const HOME_POS = ["top", "center", "bottom"];
+const HOME_CTA_SIZE = ["s", "m", "l"];
 
 function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
@@ -256,6 +259,30 @@ function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   if (typeof b.theme === "string" && HOME_THEMES.includes(b.theme)) patch.theme = b.theme;
   if (typeof b.video === "string") patch.video = String(b.video).slice(0, 2000) || null;
   if (typeof b.anim === "string" && HOME_ANIMS.includes(b.anim)) patch.anim = b.anim;
+  if (typeof b.font === "string" && HOME_FONTS.includes(b.font)) patch.font = b.font;
+  if (typeof b.tcolor === "string" && /^#[0-9a-fA-F]{6}$/.test(String(b.tcolor))) patch.tcolor = String(b.tcolor);
+  for (const k of ["artpos", "align"] as const) {
+    if (typeof b[k] === "string" && HOME_POS.includes(b[k] as string)) patch[k] = b[k];
+  }
+  if (b.zoom !== undefined && Number.isFinite(Number(b.zoom))) {
+    patch.zoom = String(Math.min(2.5, Math.max(1, Number(b.zoom))));
+  }
+  if (b.stageh !== undefined && Number.isFinite(Number(b.stageh))) {
+    patch.stageh = Math.min(700, Math.max(280, Math.round(Number(b.stageh))));
+  }
+  if (typeof b.ctapos === "string" && ["left", "center", "right"].includes(b.ctapos)) patch.ctapos = b.ctapos;
+  if (typeof b.ctasize === "string" && HOME_CTA_SIZE.includes(b.ctasize)) patch.ctasize = b.ctasize;
+  if (typeof b.ctacolor === "string" && /^#[0-9a-fA-F]{6}$/.test(String(b.ctacolor))) patch.ctacolor = String(b.ctacolor);
+  if (b.layout && typeof b.layout === "object" && !Array.isArray(b.layout)) {
+    const src = b.layout as Record<string, unknown>;
+    const clean: Record<string, number | string> = {};
+    for (const k of ["hx", "hy", "cx", "cy", "ax", "ay"] as const) {
+      if (Number.isFinite(Number(src[k]))) clean[k] = Math.min(300, Math.max(-300, Math.round(Number(src[k]))));
+    }
+    if (typeof src.hs === "string" && ["s", "m", "l"].includes(src.hs)) clean.hs = src.hs;
+    patch.layout = clean;
+  }
+  if (typeof b.fit === "string" && ["cover", "contain"].includes(b.fit)) patch.fit = b.fit;
   if (typeof b.active === "boolean") patch.active = b.active;
   if (Number.isFinite(Number(b.sort))) patch.sort = Math.round(Number(b.sort));
   for (const k of ["startsAt", "endsAt"] as const) {
@@ -275,7 +302,7 @@ adminRoute.post("/home", auth, async (c: any) => {
   const err = requireSuper(c); if (err) return err;
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const patch = homePatchFrom(b);
-  if (!patch.title) return c.json({ ok: false, error: "title required" }, 400);
+  if (!patch.kind) patch.kind = "banner";
   const rows = await db.insert(homeBlocks).values(patch as typeof homeBlocks.$inferInsert).returning();
   logOk(`[admin] home block created: ${String(patch.kind ?? "banner")}/${String(patch.title).slice(0, 30)}`);
   return c.json({ ok: true, block: rows[0] });

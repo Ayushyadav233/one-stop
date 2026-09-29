@@ -1130,8 +1130,8 @@ function HomeManager({ data }: { data: AdminData }) {
   };
 
   const save = () => {
-    if (!title.trim()) {
-      Alert.alert("Title likho", "Har card me Title zaroori hai — wahi app pe bada dikhega.");
+    if (kind === "strip" && !title.trim()) {
+      Alert.alert("Text required", "The ticker line is the whole card — write the offer text.");
       blip(320);
       return;
     }

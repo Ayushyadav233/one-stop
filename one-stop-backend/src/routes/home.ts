@@ -35,6 +35,17 @@ export async function ensureHomeTables() {
       ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "theme" varchar(16) DEFAULT 'none';
       ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "video" text;
       ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "anim" varchar(16) DEFAULT 'floaters';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "font" varchar(16) DEFAULT 'serif';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "tcolor" varchar(32) DEFAULT '';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "artpos" varchar(8) DEFAULT 'center';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "zoom" numeric(3,2) DEFAULT '1';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "align" varchar(8) DEFAULT 'center';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "stageh" integer DEFAULT 460;
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "ctapos" varchar(8) DEFAULT 'center';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "ctasize" varchar(4) DEFAULT 'm';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "ctacolor" varchar(32) DEFAULT '#FFE45E';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "layout" jsonb DEFAULT '{}';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "fit" varchar(8) DEFAULT 'cover';
     `);
   } catch { /* fail-soft: purana DB bhi chalega */ }
 }
@@ -65,6 +76,17 @@ function pub(r: typeof homeBlocks.$inferSelect) {
     theme: (r as { theme?: string }).theme ?? "none",
     video: (r as { video?: string }).video ?? "",
     anim: (r as { anim?: string }).anim ?? "floaters",
+    font: (r as { font?: string }).font ?? "serif",
+    tcolor: (r as { tcolor?: string }).tcolor ?? "",
+    artpos: (r as { artpos?: string }).artpos ?? "center",
+    zoom: Number((r as { zoom?: string }).zoom ?? 1) || 1,
+    align: (r as { align?: string }).align ?? "center",
+    stageh: Number((r as { stageh?: number }).stageh ?? 460) || 460,
+    ctapos: (r as { ctapos?: string }).ctapos ?? "center",
+    ctasize: (r as { ctasize?: string }).ctasize ?? "m",
+    ctacolor: (r as { ctacolor?: string }).ctacolor ?? "#FFE45E",
+    layout: ((r as { layout?: unknown }).layout ?? {}) as Record<string, unknown>,
+    fit: (r as { fit?: string }).fit ?? "cover",
     sort: r.sort ?? 0,
   };
 }
