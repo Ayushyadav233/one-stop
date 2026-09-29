@@ -913,7 +913,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               {g.label}, {userName || "there"} 👋{editing ? " ✏️" : ""}
             </Text>
             <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>
-              {cfg.greetingSub || g.sub} • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>12 min</Text> fastest
+              {cfg.greetingSub || g.sub}{(() => { const f = fastestEta(stores); return f ? <> • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>{f} min</Text> fastest</> : ""; })()}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: "#0E3B2E", paddingHorizontal: 10, paddingVertical: 6 }}>
@@ -1101,7 +1101,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
           <View style={{ paddingHorizontal: 16 }}>
             <SectionHead
               title={activeCat ? `Top picks in ${activeCat.t}` : "⚡ Essentials in minutes"}
-              sub={activeCat ? `${quickPicks.length} items • delivered by local stores` : "From FreshKart • Milk & More • MediCare"}
+              sub={activeCat ? `${quickPicks.length} items • delivered by local stores` : `From ${stores.slice(0, 3).map((s) => s.name.split(" ")[0]).join(" • ") || "local stores"}`}
               action={
                 <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat?.accent ?? "#0C831F" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>
