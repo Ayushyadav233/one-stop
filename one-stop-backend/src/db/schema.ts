@@ -176,8 +176,11 @@ export const homeBlocks = pgTable("osb_home_blocks", {
   linkValue: varchar("link_value", { length: 120 }).default(""),
   // Placement: where on home this card renders (top / banners / strips / mid / festival / bottom)
   slot: varchar("slot", { length: 16 }).default("banners"),
-  // Festival theme: none | diwali | christmas | holi | newyear | monsoon
+  // Festival theme: none | concert | diwali | christmas | holi | newyear | monsoon
   theme: varchar("theme", { length: 16 }).default("none"),
+  // Showcase stage: background video URL (mp4, muted autoplay loop) + motion preset
+  video: text("video"),
+  anim: varchar("anim", { length: 16 }).default("floaters"),
   active: boolean("active").default(true),
   sort: integer("sort").default(0),
   startsAt: timestamp("starts_at"),

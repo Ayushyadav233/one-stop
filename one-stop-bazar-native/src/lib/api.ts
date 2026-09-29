@@ -174,11 +174,13 @@ export function apiDeleteReview(id: string) {
 
 /** Homepage CMS — public live blocks + editable texts + version (fail-soft defaults). */
 export type ApiHomeBlock = {
-  id: string; kind: "banner" | "festival" | "ad" | "strip";
+  id: string; kind: "banner" | "festival" | "ad" | "strip" | "showcase";
   tag?: string; title?: string; sub?: string; cta?: string; image?: string;
   c1?: string; c2?: string; linkKind?: string; linkValue?: string; sort?: number;
   slot?: "top" | "banners" | "strips" | "mid" | "festival" | "bottom" | string;
-  theme?: "none" | "diwali" | "christmas" | "holi" | "newyear" | "monsoon" | string;
+  theme?: "none" | "concert" | "diwali" | "christmas" | "holi" | "newyear" | "monsoon" | string;
+  video?: string;
+  anim?: "floaters" | "confetti" | "spotlight" | "none" | string;
   active?: boolean; startsAt?: string | null; endsAt?: string | null;
 };
 export type ApiHomeConfig = Record<string, string>;

@@ -10,10 +10,11 @@
  * - StoreSheet tabs render menu content for all tabs (same as web).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Image as ExpoImage } from "expo-image";
 import { Alert, Dimensions, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, SlideInRight, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
 import {
   BadgePercent,
   Bike,
@@ -84,6 +85,7 @@ function blockToBanner(b: ApiHomeBlock, i: number): Banner {  const tints = BANN
 /* Festival themes (Swiggy/Blinkit style seasonal takeovers) + card placement. */
 export const FESTIVAL_THEMES: Record<string, { emoji: string; label: string; c1: string; c2: string }> = {
   none: { emoji: "✨", label: "Default", c1: "rgba(74,14,46,.92)", c2: "rgba(74,14,46,.55)" },
+  concert: { emoji: "🎷", label: "Concert", c1: "rgba(30,8,70,.96)", c2: "rgba(150,30,150,.6)" },
   diwali: { emoji: "🪔", label: "Diwali", c1: "rgba(74,14,46,.95)", c2: "rgba(180,80,20,.55)" },
   christmas: { emoji: "🎄", label: "Christmas", c1: "rgba(10,60,40,.95)", c2: "rgba(180,30,40,.5)" },
   holi: { emoji: "🎨", label: "Holi", c1: "rgba(90,20,90,.92)", c2: "rgba(20,140,160,.5)" },
@@ -100,11 +102,263 @@ export const HOME_SLOTS = [
 ] as const;
 /** Placement of a block (old blocks without slot keep legacy positions). */
 export function slotOf(b: ApiHomeBlock): string {
+  if (b.kind === "showcase") return "showcase";
   if (b.slot) return b.slot;
   if (b.kind === "banner") return "banners";
   if (b.kind === "strip") return "strips";
   if (b.kind === "festival") return "festival";
   return "mid";
+}
+
+/* ── Festive stage banner (Zomato-style): fixed template, animated floating
+   objects. Admin uploads title/art/theme — mascots, beams & motion auto-fit. ── */
+const SHOWCASE_OBJECTS: Record<string, string[]> = {
+  concert: ["🎷", "🎺", "🎤", "🥁", "🎹", "✨", "🎸"],
+  diwali: ["🪔", "✨", "🎆", "🌟", "💜", "🪔", "✨"],
+  christmas: ["🎄", "❄️", "🎅", "⭐", "🔔", "❄️", "🎁"],
+  holi: ["🎨", "💜", "💛", "💚", "✨", "🎉", "🌈"],
+  newyear: ["🎆", "🥂", "✨", "🌟", "🎉", "💫", "🎇"],
+  monsoon: ["🌧️", "☔", "⚡", "💧", "🌈", "✨", "🍵"],
+  none: ["✨", "🎉", "⭐", "🎊", "💫", "🌟", "🎈"],
+};
+function showcaseObjects(theme?: string): string[] {
+  return SHOWCASE_OBJECTS[theme ?? "none"] ?? SHOWCASE_OBJECTS.none;
+}
+/* Only direct media files can play — page links (pixabay.com/videos/…) are
+   HTML, not video. Invalid URLs never reach the player (no crash, template
+   shows instead) and the editor warns about them. */
+const FLOAT_SPOTS = [
+  { left: "6%", top: 226, size: 30, dur: 1500, delay: 0 },
+  { left: "20%", top: 280, size: 24, dur: 1900, delay: 300 },
+  { left: "34%", top: 214, size: 34, dur: 1700, delay: 150 },
+  { left: "52%", top: 270, size: 26, dur: 2100, delay: 500 },
+  { left: "66%", top: 222, size: 32, dur: 1600, delay: 250 },
+  { left: "80%", top: 280, size: 28, dur: 2000, delay: 100 },
+  { left: "90%", top: 234, size: 22, dur: 1800, delay: 400 },
+] as const;
+function Floater({ emoji, left, top, size, dur, delay }: { emoji: string; left: string; top: number; size: number; dur: number; delay: number }) {
+  const y = useSharedValue(0);
+  useEffect(() => {
+    y.value = withDelay(delay, withRepeat(withTiming(-14, { duration: dur, easing: Easing.inOut(Easing.ease) }), -1, true));
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
+  return (
+    <Animated.View style={[{ position: "absolute", left: left as never, top }, st]}>
+      <Text style={{ fontSize: size }}>{emoji}</Text>
+    </Animated.View>
+  );
+}
+/* Stage animation — animated GIF via expo-image (native code ships in every
+   build, no rebuild needed, plays instantly). MP4/video files are NOT played
+   (expo-video removed: its JS fatals old binaries on load, uncatchably). */
+export const DIWALI_GIF_PRESET = "https://media.giphy.com/media/l0IsI60BLJxcgNdkY/giphy.gif";
+export function isPlayableVideoUrl(u: string): boolean {
+  const s = (u || "").trim();
+  return /^https?:\/\/.+\.(gif|webp)(\?|#|$)/i.test(s);
+}
+export function isMp4Url(u: string): boolean {
+  return /^https?:\/\/.+\.(mp4|m3u8|mov)(\?|#|$)/i.test((u || "").trim());
+}
+function StageAnimation({ url }: { url: string }) {
+  return (
+    <ExpoImage
+      source={{ uri: url.trim() }}
+      style={{ position: "absolute", width: "100%", height: "100%" }}
+      contentFit="cover"
+      cachePolicy="memory-disk"
+    />
+  );
+}
+function ConfettiPiece({ emoji, left, size, dur, delay }: { emoji: string; left: string; size: number; dur: number; delay: number }) {
+  const y = useSharedValue(-50);
+  useEffect(() => {
+    y.value = withDelay(delay, withRepeat(withTiming(460, { duration: dur, easing: Easing.linear }), -1, false));
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
+  return (
+    <Animated.View style={[{ position: "absolute", left: left as never, top: 0 }, st]}>
+      <Text style={{ fontSize: size }}>{emoji}</Text>
+    </Animated.View>
+  );
+}
+function SweepBeam() {  const W = Dimensions.get("window").width;
+  const x = useSharedValue(-W / 2);
+  useEffect(() => {
+    x.value = withRepeat(withTiming(W / 2, { duration: 2600, easing: Easing.inOut(Easing.ease) }), -1, true);
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { rotate: "18deg" }] }));
+  return (
+    <Animated.View style={[{ position: "absolute", left: "50%", top: -40, width: 90, height: 480, backgroundColor: "rgba(255,255,255,.12)", marginLeft: -45 }, st]} />
+  );
+}
+export const MOTION_OPTS = [
+  { k: "floaters", label: "Floating objects", desc: "Mascots gently bobbing" },
+  { k: "confetti", label: "Falling confetti", desc: "Objects rain from the top" },
+  { k: "spotlight", label: "Spotlight sweep", desc: "Light beam sweeping the stage" },
+  { k: "none", label: "Static", desc: "Video/art only, no overlay motion" },
+] as const;
+/* Motion overlay for the stage — picked per banner in the editor. */
+function MotionLayer({ preset, theme }: { preset?: string; theme?: string }) {  const objs = showcaseObjects(theme);
+  if (preset === "confetti") {
+    return (
+      <>
+        {FLOAT_SPOTS.map((s, i) => (
+          <ConfettiPiece key={i} emoji={objs[i % objs.length]} left={s.left} size={Math.max(16, s.size - 8)} dur={s.dur + 1600} delay={s.delay + i * 350} />
+        ))}
+      </>
+    );
+  }
+  if (preset === "spotlight") return <SweepBeam />;
+  if (preset === "none") return null;
+  return (
+    <>
+      {FLOAT_SPOTS.map((s, i) => (
+        <Floater key={i} emoji={objs[i % objs.length]} left={s.left} top={s.top} size={s.size} dur={s.dur} delay={s.delay} />
+      ))}
+    </>
+  );
+}
+/* Festive headline — 3D gold letters with staggered wave motion + twinkles.
+   Fraunces display serif for the festive feel, maroon depth stack behind. */
+function WaveLetter({ ch, i }: { ch: string; i: number }) {
+  const y = useSharedValue(0);
+  useEffect(() => {
+    y.value = withDelay(
+      i * 90,
+      withRepeat(withTiming(-6, { duration: 900, easing: Easing.inOut(Easing.ease) }), -1, true)
+    );
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
+  if (ch === " ") return <Text style={{ fontFamily: "Fraunces_700Bold", fontSize: 38 }}> </Text>;
+  return (
+    <Animated.View style={st}>
+      <Text
+        style={{
+          fontFamily: "Fraunces_700Bold",
+          fontSize: 38,
+          letterSpacing: 1,
+          color: "#FFE45E",
+          fontStyle: "italic",
+          textShadowColor: "rgba(90,10,0,.9)",
+          textShadowOffset: { width: 0, height: 3 },
+          textShadowRadius: 0,
+        }}
+      >
+        {ch}
+      </Text>
+    </Animated.View>
+  );
+}
+function Twinkle({ left, top, size, delay, dur }: { left: string; top: number; size: number; delay: number; dur: number }) {
+  const o = useSharedValue(0);
+  useEffect(() => {
+    o.value = withDelay(delay, withRepeat(withTiming(1, { duration: dur, easing: Easing.inOut(Easing.ease) }), -1, true));
+  }, []);
+  const st = useAnimatedStyle(() => ({ opacity: 0.15 + o.value * 0.85, transform: [{ scale: 0.7 + o.value * 0.5 }] }));
+  return (
+    <Animated.View style={[{ position: "absolute", left: left as never, top }, st]}>
+      <Text style={{ fontSize: size }}>✨</Text>
+    </Animated.View>
+  );
+}
+function AnimatedHeadline({ text }: { text: string }) {
+  const clean = (text || "FESTIVAL").toUpperCase();
+  const letters = clean.split("");
+  const glow = useSharedValue(1);
+  useEffect(() => {
+    glow.value = withRepeat(withTiming(1.03, { duration: 1600, easing: Easing.inOut(Easing.ease) }), -1, true);
+  }, [text]);
+  const glowSt = useAnimatedStyle(() => ({ transform: [{ scale: glow.value }] }));
+  const depthStyle = {
+    position: "absolute" as const,
+    left: 0,
+    right: 0,
+    textAlign: "center" as const,
+    fontFamily: "Fraunces_700Bold",
+    fontSize: 38,
+    letterSpacing: 1,
+    fontStyle: "italic" as const,
+  };
+  return (
+    <View style={{ position: "relative", alignItems: "center" }}>
+      <Twinkle left="4%" top={-6} size={16} delay={0} dur={1100} />
+      <Twinkle left="90%" top={-10} size={20} delay={500} dur={1300} />
+      <Twinkle left="82%" top={30} size={13} delay={900} dur={1000} />
+      <Twinkle left="10%" top={34} size={13} delay={300} dur={1200} />
+      <Text accessible={false} style={[depthStyle, { top: 5, color: "#7A1E00" }]}>
+        {clean}
+      </Text>
+      <Text accessible={false} style={[depthStyle, { top: 2.5, color: "#B34A00" }]}>
+        {clean}
+      </Text>
+      <Animated.View style={[{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }, glowSt]}>
+        {letters.map((ch, i) => (
+          <WaveLetter key={`${ch}-${i}`} ch={ch} i={i} />
+        ))}
+      </Animated.View>
+    </View>
+  );
+}
+/* Festive hero (Zomato style): location + search live INSIDE the stage banner.
+   Backdrop priority: uploaded video → uploaded art → theme gradient template.
+   Motion overlay (floaters/confetti/spotlight) auto-fits on top of any backdrop. */
+function ShowcaseHeroCard({ b, header, onTap, onEdit, editing }: { b: ApiHomeBlock; header: React.ReactNode; onTap: () => void; onEdit: () => void; editing: boolean }) {
+  const W = Dimensions.get("window").width;
+  const th = FESTIVAL_THEMES[b.theme ?? "none"] ?? FESTIVAL_THEMES.none;
+  const hasVideo = isPlayableVideoUrl(b.video || "");
+  const hasArt = !!(b.image || "").trim();
+  return (
+    <View style={{ width: W, overflow: "hidden", backgroundColor: "#1B0B4D" }}>
+      {/* stage backdrop — full hero, header included */}
+      {hasVideo ? (
+        <StageAnimation url={(b.video || "").trim()} />
+      ) : hasArt ? (
+        <Img src={(b.image || "").trim()} style={{ position: "absolute", width: "100%", height: "100%" }} />
+      ) : null}
+      <LinearGradient
+        colors={hasVideo || hasArt ? ["rgba(10,4,30,.55)", "transparent", "rgba(10,4,30,.45)"] : [b.c1 || th.c1, b.c2 || th.c2, "rgba(20,5,50,.55)"]}
+        start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }}
+        style={{ position: "absolute", width: "100%", height: "100%" }}
+      />
+      {/* static beams + curtains (only for the blank gradient template) */}
+      {!hasVideo && !hasArt && (
+        <>
+          <View style={{ position: "absolute", left: "12%", top: -30, width: 54, height: 300, backgroundColor: "rgba(255,255,255,.10)", transform: [{ rotate: "18deg" }] }} />
+          <View style={{ position: "absolute", right: "12%", top: -30, width: 54, height: 300, backgroundColor: "rgba(255,255,255,.10)", transform: [{ rotate: "-18deg" }] }} />
+          <LinearGradient colors={["rgba(10,2,30,.75)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 44 }} />
+          <LinearGradient colors={["transparent", "rgba(10,2,30,.75)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 44 }} />
+        </>
+      )}
+      {/* motion overlay */}
+      <MotionLayer preset={b.anim || "floaters"} theme={b.theme} />
+      {/* header (location + search) + stage content */}
+      {header}
+      <Pressable onPress={onTap} style={{ alignItems: "center", paddingHorizontal: 24, paddingTop: 14, paddingBottom: 6 }}>
+        {!!b.tag && (
+          <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 3, color: "#FFD166" }}>{b.tag.toUpperCase()}</Text>
+        )}
+        <AnimatedHeadline text={b.title || "FESTIVAL"} />
+        {!!b.sub && (
+          <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.9)", textAlign: "center", textShadowColor: "rgba(0,0,0,.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>{b.sub}</Text>
+        )}
+        {!!b.cta && (
+          <View style={{ marginTop: 14, borderRadius: 999, backgroundColor: "#FFE45E", paddingHorizontal: 24, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#1B0B4D" }}>{b.cta}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#1B0B4D" }}>›</Text>
+          </View>
+        )}
+      </Pressable>
+      {/* stage floor glow */}
+      <View style={{ height: 44 }}>
+        <LinearGradient colors={["transparent", "rgba(255,60,180,.30)"]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ flex: 1 }} />
+      </View>
+      {editing && (
+        <Pressable onPress={onEdit} style={{ position: "absolute", right: 12, top: 118, height: 36, width: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ fontSize: 16 }}>✏️</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 }
 export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const set = useOSB((s) => s.set);
@@ -226,6 +480,9 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const liveFestival = !activeCat && showFestival ? homeBlocks.find((b) => b.kind === "festival") : undefined;
   const festivalTheme = FESTIVAL_THEMES[liveFestival?.theme ?? "none"] ?? FESTIVAL_THEMES.none;
   const topBars = !activeCat ? homeBlocks.filter((b) => slotOf(b) === "top").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)) : [];
+  const showcaseBlocks = !activeCat ? homeBlocks.filter((b) => b.kind === "showcase").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)) : [];
+  const [showcaseIdx, setShowcaseIdx] = useState(0);
+  const showcaseRef = useRef<ScrollView>(null);
   const liveStripTitles = !activeCat && showStrips ? homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "") : [];
   const stripTitles = liveStripTitles.length > 0 ? liveStripTitles : String(cfg.stripsDefault || "").split("|").map((s) => s.trim()).filter(Boolean);
   // Banner cards ↔ CMS blocks mapping (edit badge needs the right block)
@@ -243,6 +500,56 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
     return homeBlocks.filter((b) => (b.kind === "ad" || b.kind === "banner") && slotOf(b) === "bottom").sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
   }, [homeBlocks, activeCat, showAds]);
   const editing = isSuper && homeEditMode && !activeCat;
+  const heroLive = !activeCat && showcaseBlocks.length > 0;
+
+  /* Header rows — shared by the fixed header and the festive hero (Zomato style).
+     onDark = rendered over the stage backdrop (white text, white search bar). */
+  const renderLocationRow = (onDark: boolean) => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 12 }}>
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <View style={{ height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: onDark ? "rgba(255,255,255,.18)" : "#FFE9E9" }}>
+          <Text style={{ fontSize: 17 }}>📍</Text>
+        </View>
+        <Pressable onPress={() => { setLocOpen(true); blip(560); }} style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14.5, letterSpacing: -0.3, color: onDark ? "#fff" : colors.ink, maxWidth: 150 }}>
+              {addressArea || "Set location"}
+            </Text>
+            <ChevronDown size={15} strokeWidth={2.8} color={onDark ? "#fff" : colors.ink} />
+          </View>
+          <Text numberOfLines={1} style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: onDark ? "rgba(255,255,255,.75)" : colors.ink3 }}>
+            {address || "Tap to add delivery address"}
+          </Text>
+        </Pressable>
+      </View>
+      <Pressable onPress={() => set({ tab: "profile" })} style={{ height: 40, width: 40, borderRadius: 20, overflow: "hidden" }}>
+        <LinearGradient colors={["#0E3B2E", "#1FB67C"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 17, color: "#fff" }}>{userAvatar || (userName ? userName[0].toUpperCase() : "👤")}</Text>
+        </LinearGradient>
+      </Pressable>
+      <Pressable onPress={() => { set({ dark: !dark }); blip(700); }} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: onDark ? "rgba(255,255,255,.18)" : colors.chip }}>
+        {dark ? <Sun size={17} color="#fff" /> : <Moon size={17} color={onDark ? "#fff" : colors.ink} />}
+      </Pressable>
+    </View>
+  );
+  const renderSearchRow = (onDark: boolean) => (
+    <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+      <Pressable
+        onPress={() => (editing ? setEditTarget({ t: "texts" }) : set({ tab: "search" }))}
+        style={onDark
+          ? { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: "#fff", borderWidth: editing ? 2 : 0, borderColor: "#D8F34E", paddingHorizontal: 14, paddingVertical: 12 }
+          : { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: editing ? "#D8F34E" : colors.line, paddingHorizontal: 14, paddingVertical: 12 }}
+      >
+        <Search size={18} strokeWidth={2.6} color="#E23744" />
+        <Text numberOfLines={1} style={{ flex: 1, fontFamily: F.medium, fontSize: 13.5, color: onDark ? "#666" : colors.ink3 }}>
+          {cfg.searchPlaceholder || "Search…"}
+        </Text>
+        <View style={{ height: 20, width: 1, backgroundColor: onDark ? "#eee" : colors.line }} />
+        <Mic size={17} color={onDark ? "#888" : colors.ink2} />
+        <ScanSearch size={17} color={onDark ? "#888" : colors.ink2} />
+      </Pressable>
+    </View>
+  );
 
   // Auto-advance banner carousel; reset index when category changes so old index doesn't atak jaaye.
   useEffect(() => {
@@ -264,64 +571,14 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.app }}>
-      {/* fixed header (web: sticky) */}
+      {/* fixed header — hidden while the festive hero is live (header lives inside the stage) */}
+      {!heroLive && (
       <View style={{ backgroundColor: colors.surface, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.line }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 12 }}>
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <View style={{ height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#FFE9E9" }}>
-              <Text style={{ fontSize: 17 }}>📍</Text>
-            </View>
-            <Pressable onPress={() => { setLocOpen(true); blip(560); }} style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14.5, letterSpacing: -0.3, color: colors.ink, maxWidth: 150 }}>
-                  {addressArea || "Set location"}
-                </Text>
-                <ChevronDown size={15} strokeWidth={2.8} color={colors.ink} />
-              </View>
-              <Text numberOfLines={1} style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>
-                {address || "Tap to add delivery address"}
-              </Text>
-            </Pressable>
-          </View>
-          <Pressable onPress={() => set({ tab: "profile" })} style={{ height: 40, width: 40, borderRadius: 20, overflow: "hidden" }}>
-            <LinearGradient colors={["#0E3B2E", "#1FB67C"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 17, color: "#fff" }}>{userAvatar || (userName ? userName[0].toUpperCase() : "👤")}</Text>
-            </LinearGradient>
-          </Pressable>
-          <Pressable onPress={() => { set({ dark: !dark }); blip(700); }} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.chip }}>
-            {dark ? <Sun size={17} color={colors.ink} /> : <Moon size={17} color={colors.ink} />}
-          </Pressable>
-        </View>
-        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-          <Pressable
-            onPress={() => (editing ? setEditTarget({ t: "texts" }) : set({ tab: "search" }))}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: editing ? 2 : 1, borderColor: editing ? "#D8F34E" : colors.line, paddingHorizontal: 14, paddingVertical: 12 }}
-          >
-            <Search size={18} strokeWidth={2.6} color="#E23744" />
-            <Text numberOfLines={1} style={{ flex: 1, fontFamily: F.medium, fontSize: 13.5, color: colors.ink3 }}>
-              {cfg.searchPlaceholder || "Search…"}
-            </Text>
-            <View style={{ height: 20, width: 1, backgroundColor: colors.line }} />
-            <Mic size={17} color={colors.ink2} />
-            <ScanSearch size={17} color={colors.ink2} />
-          </Pressable>
-         </View>
-       </View>
-        {role === "super_admin" && (
-          <View style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#0B0B0F", paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 16 }}>🛡️</Text>
-            </View>
-            <Pressable onPress={() => { set({ mode: "admin", tab: "overview" }); blip(800); }} style={{ flex: 1 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Super Admin</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.5)" }}>Panel • orders • coupons</Text>
-            </Pressable>
-            <Pressable onPress={() => { set({ homeEditMode: !homeEditMode }); blip(700); }} style={{ borderRadius: 999, backgroundColor: homeEditMode ? "#D8F34E" : "#fff", paddingHorizontal: 12, paddingVertical: 8 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0B0B0F" }}>{homeEditMode ? "✏️ Editing…" : "🎨 Edit Home"}</Text>
-            </Pressable>
-          </View>
-        )}
-        {/* Live edit toolbar (super admin only) */}
+        {renderLocationRow(false)}
+        {renderSearchRow(false)}
+      </View>
+      )}
+        {/* Live edit toolbar (super admin only — entry via You tab → Super Admin → Edit live on Home) */}
         {editing && (
           <View style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#0B0B0F", paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#D8F34E" }}>● LIVE EDIT</Text>
@@ -335,6 +592,52 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
           </View>
         )}
        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
+        {/* Festive hero — header (location + search) lives INSIDE the stage (Zomato style) */}
+        {(showcaseBlocks.length > 0 || editing) && (
+          <View style={{ position: "relative" }}>
+            {showcaseBlocks.length > 0 && (
+              <>
+                <ScrollView
+                  ref={showcaseRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  pagingEnabled
+                  snapToInterval={W}
+                  snapToAlignment="start"
+                  decelerationRate="fast"
+                  onMomentumScrollEnd={(e) => setShowcaseIdx(Math.min(showcaseBlocks.length - 1, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / W))))}
+                >
+                  {showcaseBlocks.map((b) => (
+                    <ShowcaseHeroCard
+                      key={b.id}
+                      b={b}
+                      editing={editing}
+                      header={<>{renderLocationRow(true)}{renderSearchRow(true)}</>}
+                      onTap={() => tapBanner(blockToBanner(b, 0))}
+                      onEdit={() => setEditTarget({ t: "block", block: b })}
+                    />
+                  ))}
+                </ScrollView>
+                {showcaseBlocks.length > 1 && (
+                  <View style={{ position: "absolute", left: 0, right: 0, bottom: 12, flexDirection: "row", justifyContent: "center", gap: 6 }}>
+                    {showcaseBlocks.map((b, i) => (
+                      <Pressable
+                        key={b.id}
+                        onPress={() => { setShowcaseIdx(i); showcaseRef.current?.scrollTo({ x: i * W, animated: true }); }}
+                        style={{ height: 6, width: i === showcaseIdx ? 22 : 6, borderRadius: 999, backgroundColor: i === showcaseIdx ? "#FFE45E" : "rgba(255,255,255,.45)" }}
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+            {editing && (
+              <Pressable onPress={() => setEditTarget({ t: "new", kind: "showcase", slot: "top" })} style={{ marginHorizontal: 16, marginTop: showcaseBlocks.length ? 8 : 10, marginBottom: showcaseBlocks.length ? 0 : 4, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, backgroundColor: showcaseBlocks.length ? undefined : colors.card, paddingVertical: 10, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: showcaseBlocks.length ? "#fff" : colors.ink3 }}>+ Add festive stage banner (video / art / animated)</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
         {/* Top announcement bar (slot=top) — Swiggy-style seasonal strip */}
         {topBars.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 10 }}>
@@ -353,7 +656,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>+ Add announcement bar (festival strip on top)</Text>
           </Pressable>
         )}
-        {/* greeting — edit mode me tap → shabd badlo */}
+        {/* greeting — tap in edit mode to change words */}
         <Pressable onPress={() => { if (editing) setEditTarget({ t: "texts" }); }} disabled={!editing}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12, opacity: 1 }}>
           <View>
@@ -799,6 +1102,7 @@ type EditTarget = null | { t: "block"; block: ApiHomeBlock } | { t: "texts" } | 
 const SHEET_KINDS = [
   { k: "banner", label: "Hero banner", desc: "Large swipeable card" },
   { k: "ad", label: "Promo card", desc: "Compact offer card" },
+  { k: "showcase", label: "Festive stage", desc: "Animated full-width banner" },
   { k: "festival", label: "Festival spotlight", desc: "Seasonal takeover" },
   { k: "strip", label: "Offer ticker", desc: "Text-only pill" },
 ] as const;
@@ -826,6 +1130,8 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
   const [c1, setC1] = useState(srcBlock?.c1 || "rgba(10,10,10,.78)");
   const [linkKind, setLinkKind] = useState<string>(srcBlock?.linkKind || "none");
   const [linkValue, setLinkValue] = useState<string>(srcBlock?.linkValue || "");
+  const [video, setVideo] = useState<string>(srcBlock?.video || "");
+  const [anim, setAnim] = useState<string>(srcBlock?.anim || "floaters");
   const [startsAt, setStartsAt] = useState<string>((srcBlock?.startsAt || "").slice(0, 10));
   const [endsAt, setEndsAt] = useState<string>((srcBlock?.endsAt || "").slice(0, 10));
   const [texts, setTexts] = useState<Record<string, string>>({ ...cfg });
@@ -841,9 +1147,9 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
   const saveBlock = () => {
     if (!title.trim()) { Alert.alert("Title required", "Give this card a headline — it is the biggest text on the card."); return; }
     const patch = {
-      kind, slot, theme,
+      kind, slot: kind === "showcase" ? "top" : slot, theme,
       tag: tag.trim(), title: title.trim(), sub: sub.trim(), cta: cta.trim(),
-      image: image.trim(), c1,
+      image: image.trim(), c1, video: video.trim(), anim,
       linkKind, linkValue: linkValue.trim(),
       startsAt: startsAt.trim() ? new Date(`${startsAt.trim()}T00:00:00`).toISOString() : null,
       endsAt: endsAt.trim() ? new Date(`${endsAt.trim()}T00:00:00`).toISOString() : null,
@@ -934,6 +1240,9 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                 ))}
               </View>
               <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Placement — where on home?</Text>
+              {kind === "showcase" ? (
+                <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>Fixed position: full-width animated stage directly below search (like Zomato).</Text>
+              ) : (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                 {HOME_SLOTS.map((s) => (
                   <Pressable key={s.k} onPress={() => { setSlot(s.k); blip(600); }} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: slot === s.k ? "#0C831F" : colors.card2 }}>
@@ -941,9 +1250,10 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                   </Pressable>
                 ))}
               </View>
-              {(kind === "festival" || slot === "festival") && (
+              )}
+              {(kind === "festival" || slot === "festival" || kind === "showcase") && (
                 <>
-                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Festival theme</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{kind === "showcase" ? "Stage theme — backdrop, objects & colours auto-fit" : "Festival theme"}</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                     {Object.entries(FESTIVAL_THEMES).map(([tk, th]) => (
                       <Pressable key={tk} onPress={() => { setTheme(tk); if (tk !== "none") setC1(th.c1); blip(600); }} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme === tk ? "#0B0B0F" : colors.card2 }}>
@@ -953,13 +1263,38 @@ function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, n
                   </View>
                 </>
               )}
-              <TextInput value={title} onChangeText={setTitle} placeholder="Headline *  e.g. 50% OFF Biryani" placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={title} onChangeText={setTitle} placeholder={kind === "showcase" ? "Stage headline *  e.g. MONTH END" : "Headline *  e.g. 50% OFF Biryani"} placeholderTextColor={colors.ink3} style={input} />
               {kind !== "strip" && (
                 <>
-                  <TextInput value={tag} onChangeText={setTag} placeholder="Eyebrow tag  e.g. FESTIVE SALE" placeholderTextColor={colors.ink3} style={input} />
-                  <TextInput value={sub} onChangeText={setSub} placeholder="Subline  e.g. Code BAZAR50 · Free delivery" placeholderTextColor={colors.ink3} style={input} />
-                  <TextInput value={cta} onChangeText={setCta} placeholder="Button label  e.g. Order now" placeholderTextColor={colors.ink3} style={input} />
-                  <TextInput value={image} onChangeText={setImage} placeholder="Image URL  https://…" placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
+                  <TextInput value={tag} onChangeText={setTag} placeholder={kind === "showcase" ? "Small kicker (optional)" : "Eyebrow tag  e.g. FESTIVE SALE"} placeholderTextColor={colors.ink3} style={input} />
+                  <TextInput value={sub} onChangeText={setSub} placeholder={kind === "showcase" ? "One-line subtext (optional)" : "Subline  e.g. Code BAZAR50 · Free delivery"} placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={cta} onChangeText={setCta} placeholder={kind === "showcase" ? "Pill button  e.g. Order now" : "Button label  e.g. Order now"} placeholderTextColor={colors.ink3} style={input} />
+              {kind === "showcase" && (
+                <>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Background animation (plays instantly)</Text>
+                  <TextInput value={video} onChangeText={setVideo} placeholder="Direct .gif link  https://…/file.gif" placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
+                  <Pressable onPress={() => { setVideo(DIWALI_GIF_PRESET); blip(700); }} style={{ borderRadius: 10, backgroundColor: "#0B0B0F", paddingVertical: 10, alignItems: "center" }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#D8F34E" }}>Use Diwali fireworks preset</Text>
+                  </Pressable>
+                  {!!video.trim() && !isPlayableVideoUrl(video) && !isMp4Url(video) && (
+                    <Text style={{ fontFamily: F.semi, fontSize: 11, color: "#E23744" }}>This is a page link, not an animation file — it will not play. Use a direct link ending in .gif (Giphy/Tenor share → file link).</Text>
+                  )}
+                  {!!video.trim() && isMp4Url(video) && (
+                    <Text style={{ fontFamily: F.semi, fontSize: 11, color: "#E8830C" }}>MP4 video is not supported in the current build — use a GIF link instead, it plays instantly with no app update.</Text>
+                  )}
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Paste an animated GIF and it plays full-screen behind the header — no app update needed. Blank template guide — canvas 1080 × 1400 px: keep the main art in the middle band, headline sits in the upper third, pill button near the bottom. Location + search overlay the top automatically.</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Motion overlay (auto-fits over video or art)</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {MOTION_OPTS.map((m) => (
+                      <Pressable key={m.k} onPress={() => { setAnim(m.k); blip(600); }} style={{ borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: anim === m.k ? "#0B0B0F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: anim === m.k ? "#D8F34E" : colors.ink2 }}>{m.label}</Text>
+                        <Text style={{ fontFamily: F.medium, fontSize: 9.5, color: anim === m.k ? "rgba(216,243,78,.7)" : colors.ink3 }}>{m.desc}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              )}
+              <TextInput value={image} onChangeText={setImage} placeholder={kind === "showcase" ? "Backdrop art URL (fallback/poster under video)" : "Image URL  https://…"} placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
                 </>
               )}
               <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Background tint</Text>

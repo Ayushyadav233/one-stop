@@ -234,10 +234,11 @@ adminRoute.patch("/categories/:id", auth, async (c: any) => {
 
 // ---- Homepage CMS (super_admin only) ----
 
-const HOME_KINDS = ["banner", "festival", "ad", "strip"];
+const HOME_KINDS = ["banner", "festival", "ad", "strip", "showcase"];
 const HOME_LINKS = ["none", "store", "category", "search"];
 const HOME_SLOTS = ["top", "banners", "strips", "mid", "festival", "bottom"];
-const HOME_THEMES = ["none", "diwali", "christmas", "holi", "newyear", "monsoon"];
+const HOME_THEMES = ["none", "concert", "diwali", "christmas", "holi", "newyear", "monsoon"];
+const HOME_ANIMS = ["floaters", "confetti", "spotlight", "none"];
 
 function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
@@ -253,6 +254,8 @@ function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   if (typeof b.linkValue === "string") patch.linkValue = String(b.linkValue).slice(0, 120);
   if (typeof b.slot === "string" && HOME_SLOTS.includes(b.slot)) patch.slot = b.slot;
   if (typeof b.theme === "string" && HOME_THEMES.includes(b.theme)) patch.theme = b.theme;
+  if (typeof b.video === "string") patch.video = String(b.video).slice(0, 2000) || null;
+  if (typeof b.anim === "string" && HOME_ANIMS.includes(b.anim)) patch.anim = b.anim;
   if (typeof b.active === "boolean") patch.active = b.active;
   if (Number.isFinite(Number(b.sort))) patch.sort = Math.round(Number(b.sort));
   for (const k of ["startsAt", "endsAt"] as const) {

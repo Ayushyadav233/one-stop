@@ -1014,6 +1014,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
 
 const HOME_KINDS = [
   ["banner", "Hero banner", "🖼️", "Large swipeable card at the top"],
+  ["showcase", "Festive stage", "🎪", "Animated full-width banner (Zomato style)"],
   ["festival", "Festival spotlight", "🪔", "Seasonal takeover with theme"],
   ["ad", "Promo card", "📢", "Compact offer card, any section"],
   ["strip", "Offer ticker", "🏷️", "Text-only scrolling pill"],
