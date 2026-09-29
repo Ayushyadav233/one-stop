@@ -16,6 +16,7 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
+  Copy,
   CreditCard,
   Eye,
   EyeOff,
@@ -43,20 +44,27 @@ import {
   apiAdminDeleteCoupon,
   apiAdminDeleteHomeBlock,
   apiAdminDeleteStore,
+  apiAdminGetHomeConfig,
   apiAdminHomeBlocks,
+  apiAdminHomeVersions,
   apiAdminOrders,
   apiAdminPatchCatRequest,
   apiAdminPatchHomeBlock,
+  apiAdminPatchHomeConfig,
   apiAdminPatchOrder,
   apiAdminPatchStore,
   apiAdminPatchUserRole,
   apiAdminPostCoupon,
   apiAdminPostHomeBlock,
   apiAdminPostStore,
+  apiAdminPublishHome,
+  apiAdminRevertHome,
   apiAdminStats,
   apiAdminStores,
   apiAdminUsers,
+  HOME_CONFIG_DEFAULTS,
   type ApiHomeBlock,
+  type ApiHomeVersion,
 } from "@/lib/api";
 
 const TABS = [
@@ -916,6 +924,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
 
   return (
     <View style={{ gap: 12, paddingHorizontal: 16, paddingTop: 12 }}>
+      <HomeManager data={data} />
       <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <SectionHead title="Coupons engine" sub="Customer app me turant live" />
@@ -999,28 +1008,44 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
           </Pressable>
         ))}
       </View>
-
-      <HomeManager data={data} />
     </View>
   );
 }
 
 const HOME_KINDS = [
-  ["banner", "Top carousel", "🖼️"],
-  ["festival", "Festival spotlight", "🪔"],
-  ["ad", "Mid-home ad card", "📢"],
-  ["strip", "Offer strip text", "🏷️"],
+  ["banner", "Top banner", "🖼️", "Home ke sabse upar wala bada card"],
+  ["festival", "Festival", "🪔", "Diwali/Christmas wala spotlight"],
+  ["ad", "Ad card", "📢", "Beech me chhota offer card"],
+  ["strip", "Strip line", "🏷️", "Chhoti offer patti (sirf text)"],
 ] as const;
 type HomeKind = (typeof HOME_KINDS)[number][0];
 const HOME_LINKS = ["none", "store", "category", "search"] as const;
+const COLOR_PRESETS = ["rgba(10,10,10,.78)", "rgba(14,59,46,.85)", "rgba(60,20,60,.8)", "rgba(74,14,46,.92)", "rgba(158,42,43,.85)", "rgba(12,131,31,.85)"];
+const CONFIG_FIELDS: { k: string; label: string; hint: string }[] = [
+  { k: "searchPlaceholder", label: "1️⃣ Search me kya likha ho", hint: "e.g. Search “biryani”, “A2 milk”… " },
+  { k: "greetingSub", label: "2️⃣ Namaste ke neeche wali line", hint: "e.g. Sab kuch, ek app me" },
+  { k: "categoriesTitle", label: "3️⃣ Category heading", hint: "e.g. Explore categories" },
+  { k: "festivalTitle", label: "4️⃣ Festival heading", hint: "e.g. Festive picks for you" },
+  { k: "festivalSub", label: "5️⃣ Festival neeche wali line", hint: "e.g. Sweets, gifts & more" },
+  { k: "festivalCta", label: "6️⃣ Festival button", hint: "e.g. Send gift" },
+  { k: "stripsDefault", label: "7️⃣ Offer patti (| se alag karo)", hint: "50% OFF up to ₹100|Free delivery…" },
+];
+const SECTION_TOGGLES: { k: string; label: string }[] = [
+  { k: "showCategories", label: "Categories" },
+  { k: "showStrips", label: "Offer patti" },
+  { k: "showAds", label: "Ad cards" },
+  { k: "showFestival", label: "Festival" },
+];
 
-/* ═══════════ HomeManager — homepage CMS (banners/ads/festival/strips) ═══════════ */
+/* ═══════════ Home Studio — simple visual edit-mode + publish + revert ═══════════ */
 function HomeManager({ data }: { data: AdminData }) {
   const { colors } = useTheme();
   const extraCategories = useOSB((s) => s.extraCategories);
   const syncHomeBlocks = useOSB((s) => s.syncHomeBlocks);
   const [blocks, setBlocks] = useState<ApiHomeBlock[]>([]);
   const [loading, setLoading] = useState(true);
+  // Simple edit-mode: preview cards pe ✏️ dikhta hai, tap → neeche form khulta hai.
+  const [editMode, setEditMode] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [kind, setKind] = useState<HomeKind>("banner");
@@ -1029,11 +1054,20 @@ function HomeManager({ data }: { data: AdminData }) {
   const [sub, setSub] = useState("");
   const [cta, setCta] = useState("");
   const [image, setImage] = useState("");
+  const [c1, setC1] = useState(COLOR_PRESETS[0]);
+  const [c2, setC2] = useState("rgba(10,10,10,.15)");
   const [linkKind, setLinkKind] = useState<string>("none");
   const [linkValue, setLinkValue] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [active, setActive] = useState(true);
+  // Home texts + publish/history
+  const [cfg, setCfg] = useState<Record<string, string>>({ ...HOME_CONFIG_DEFAULTS });
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [versions, setVersions] = useState<ApiHomeVersion[]>([]);
+  const [histOpen, setHistOpen] = useState(false);
+  const [publishNote, setPublishNote] = useState("");
+  const [publishing, setPublishing] = useState(false);
 
   const load = useCallback(() => {
     apiAdminHomeBlocks()
@@ -1042,6 +1076,8 @@ function HomeManager({ data }: { data: AdminData }) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+    apiAdminGetHomeConfig().then(setCfg).catch(() => {});
+    apiAdminHomeVersions().then(setVersions).catch(() => {});
   }, []);
   useEffect(() => {
     load();
@@ -1055,6 +1091,8 @@ function HomeManager({ data }: { data: AdminData }) {
     setSub("");
     setCta("");
     setImage("");
+    setC1(COLOR_PRESETS[0]);
+    setC2("rgba(10,10,10,.15)");
     setLinkKind("none");
     setLinkValue("");
     setStartsAt("");
@@ -1073,10 +1111,12 @@ function HomeManager({ data }: { data: AdminData }) {
     setSub(b.sub || "");
     setCta(b.cta || "");
     setImage(b.image || "");
+    setC1(b.c1 || COLOR_PRESETS[0]);
+    setC2(b.c2 || "rgba(10,10,10,.15)");
     setLinkKind(b.linkKind || "none");
     setLinkValue(b.linkValue || "");
-    setStartsAt((b.startsAt || "").slice(0, 16).replace("T", " "));
-    setEndsAt((b.endsAt || "").slice(0, 16).replace("T", " "));
+    setStartsAt((b.startsAt || "").slice(0, 10));
+    setEndsAt((b.endsAt || "").slice(0, 10));
     setActive(b.active !== false);
     setFormOpen(true);
   };
@@ -1090,6 +1130,7 @@ function HomeManager({ data }: { data: AdminData }) {
 
   const save = () => {
     if (!title.trim()) {
+      Alert.alert("Title likho", "Har card me Title zaroori hai — wahi app pe bada dikhega.");
       blip(320);
       return;
     }
@@ -1100,6 +1141,8 @@ function HomeManager({ data }: { data: AdminData }) {
       sub: sub.trim(),
       cta: cta.trim(),
       image: image.trim(),
+      c1: c1.trim() || COLOR_PRESETS[0],
+      c2: c2.trim() || "rgba(10,10,10,.15)",
       linkKind,
       linkValue: linkValue.trim(),
       active,
@@ -1118,6 +1161,51 @@ function HomeManager({ data }: { data: AdminData }) {
       const maxSort = blocks.reduce((a, b) => Math.max(a, b.sort ?? 0), 0);
       void apiAdminPostHomeBlock({ ...payload, sort: maxSort + 1 }).then(done);
     }
+  };
+
+  const duplicate = (b: ApiHomeBlock) => {
+    const maxSort = blocks.reduce((a, x) => Math.max(a, x.sort ?? 0), 0);
+    void apiAdminPostHomeBlock({
+      kind: b.kind, tag: b.tag, title: `${b.title || "Card"} (copy)`, sub: b.sub, cta: b.cta,
+      image: b.image, c1: b.c1, c2: b.c2, linkKind: b.linkKind, linkValue: b.linkValue,
+      active: false, sort: maxSort + 1,
+    }).then(() => { blip(760); load(); syncHomeBlocks(); });
+  };
+
+  const publish = () => {
+    if (publishing) return;
+    setPublishing(true);
+    void apiAdminPublishHome(publishNote.trim()).then((j) => {
+      setPublishing(false);
+      if (j?.ok) {
+        blip(920, 0.2);
+        Alert.alert("🚀 Publish ho gaya", "Ab sabhi phones pe naya home dikhega (app khulne pe auto-update).");
+        setPublishNote("");
+        load();
+        syncHomeBlocks();
+      } else {
+        Alert.alert("Publish fail", "Backend se baat nahi hui — net check karke retry karo.");
+      }
+    });
+  };
+
+  const revert = (v: ApiHomeVersion) => {
+    Alert.alert("Wapas lao?", `“${v.note || "purana version"}” wala home wapas aayega. Abhi wala history me safe rahega.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Revert karo",
+        onPress: () => {
+          void apiAdminRevertHome(v.id).then((j) => {
+            if (j?.ok) { blip(700); Alert.alert("↩️ Revert ho gaya", "Purana home live hai."); load(); syncHomeBlocks(); }
+          });
+        },
+      },
+    ]);
+  };
+
+  const saveCfg = (k: string, v: string) => {
+    setCfg((c) => ({ ...c, [k]: v }));
+    void apiAdminPatchHomeConfig({ [k]: v }).then(() => { syncHomeBlocks(); });
   };
 
   const remove = (b: ApiHomeBlock) => {
@@ -1164,135 +1252,319 @@ function HomeManager({ data }: { data: AdminData }) {
   const storeImgs = data.stores.filter((s) => S(s.image));
   const catKeys = [...CATEGORIES.map((c) => c.k), ...extraCategories.map((c) => c.k)];
 
-  const inputStyle = { borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink } as const;
+  const inputStyle = { borderRadius: 14, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 13, fontFamily: F.semi, fontSize: 13.5, color: colors.ink } as const;
+  const labelStyle = { fontFamily: F.extra, fontSize: 12.5, color: colors.ink } as const;
+  const hintStyle = { fontFamily: F.medium, fontSize: 11, color: colors.ink3 } as const;
+  const sorted = [...blocks].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  const liveCount = blocks.filter((b) => b.active !== false).length;
+  const kindMeta = (k: string) => HOME_KINDS.find(([kk]) => kk === k) ?? HOME_KINDS[0];
+  const goHomeEdit = () => {
+    useOSB.getState().set({ mode: "customer", tab: "home", homeEditMode: true });
+    blip(800);
+  };
 
   return (
-    <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionHead title="Home content" sub="Banner • festival • ads • strips — app me live" />
-        <View style={{ borderRadius: 999, backgroundColor: "#7C5CFF", paddingHorizontal: 10, paddingVertical: 4 }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>{blocks.filter((b) => b.active !== false).length}/{blocks.length} live</Text>
+    <View style={{ gap: 12 }}>
+      {/* ── Step header: normal person bhi samjhe ── */}
+      <View style={{ borderRadius: 20, backgroundColor: "#0B0B0F", padding: 16, overflow: "hidden" }}>
+        <View style={{ position: "absolute", right: -50, top: -70, height: 180, width: 180, borderRadius: 90, backgroundColor: "rgba(216,243,78,.18)" }} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>🏠 Home Studio</Text>
+            <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.6)" }}>Dekho → Edit karo → Publish dabao. Bas!</Text>
+          </View>
+          <View style={{ borderRadius: 999, backgroundColor: "#D8F34E", paddingHorizontal: 12, paddingVertical: 5 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0B0B0F" }}>{liveCount}/{blocks.length} live</Text>
+          </View>
+        </View>
+        {/* Home pe jaake live edit — sabse aasaan rasta */}
+        <Pressable onPress={goHomeEdit} style={{ marginTop: 12, borderRadius: 14, backgroundColor: "#D8F34E", paddingVertical: 13, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8 }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#0B0B0F" }}>🎨 Home pe jaake LIVE edit karo →</Text>
+        </Pressable>
+        <Text style={{ marginTop: 6, fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.6)", textAlign: "center" }}>Home khulega, har card pe ✏️ dikhega — tap karo, wahin badlo, wahin dikhega.</Text>
+        <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+          {(["1 Dekho 👀", "2 Edit ✏️", "3 Publish 🚀"] as const).map((s, i) => (
+            <View key={s} style={{ flex: 1, borderRadius: 12, backgroundColor: i === 2 ? "#D8F34E" : "rgba(255,255,255,.1)", paddingVertical: 8, alignItems: "center" }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: i === 2 ? "#0B0B0F" : "#fff" }}>{s}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: "rgba(255,255,255,.65)" }}>{editMode ? "✏️ Edit-mode ON — har card pe pencil hai" : "👀 Preview-mode — jaise customer dekhega"}</Text>
+          <Pressable onPress={() => { setEditMode(!editMode); blip(600); }} style={{ borderRadius: 999, backgroundColor: editMode ? "#D8F34E" : "rgba(255,255,255,.15)", paddingHorizontal: 14, paddingVertical: 7 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: editMode ? "#0B0B0F" : "#fff" }}>{editMode ? "ON" : "OFF"}</Text>
+          </Pressable>
         </View>
       </View>
 
-      <View style={{ marginTop: 10, gap: 8 }}>
-        {loading && <Empty text="Loading…" />}
-        {!loading && blocks.length === 0 && <Empty text="Koi block nahi — neeche se banao, home khali lagega." />}
-        {[...blocks]
-          .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
-          .map((b, ix, arr) => {
+      {/* ── Visual preview list: sab edit-mode me dikhe ── */}
+      <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View>
+            <Text style={labelStyle}>📱 Home jaisa dikhega</Text>
+            <Text style={hintStyle}>Neeche wahi order me cards hain jo app pe hain</Text>
+          </View>
+          <Pressable onPress={openAdd} style={{ flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#0C831F", paddingHorizontal: 14, paddingVertical: 9 }}>
+            <Plus size={14} color="#fff" />
+            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>Naya card</Text>
+          </Pressable>
+        </View>
+        <View style={{ marginTop: 10, gap: 10 }}>
+          {loading && <Empty text="Loading…" />}
+          {!loading && blocks.length === 0 && <Empty text="Abhi home khali hai — “Naya card” dabao, pehla banner banao." />}
+          {sorted.map((b, ix, arr) => {
             const on = b.active !== false;
-            const kindLabel = HOME_KINDS.find(([k]) => k === b.kind)?.[1] ?? b.kind;
+            const [, label, emoji] = kindMeta(b.kind);
             return (
-              <View key={b.id} style={{ borderRadius: 14, backgroundColor: colors.card2, padding: 10, opacity: on ? 1 : 0.55 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <View style={{ height: 48, width: 72, borderRadius: 10, overflow: "hidden", backgroundColor: colors.chip }}>
-                    {b.image ? <Img src={b.image} style={{ width: "100%", height: "100%" }} /> : <Text style={{ fontSize: 20, textAlign: "center", lineHeight: 48 }}>🏷️</Text>}
+              <View key={b.id} style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card2, opacity: on ? 1 : 0.6 }}>
+                {/* mini app-preview */}
+                <View style={{ height: b.kind === "strip" ? 40 : 110, backgroundColor: b.c1 || "#111" }}>
+                  {b.image ? <Img src={b.image} style={{ position: "absolute", width: "100%", height: "100%" }} /> : null}
+                  <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 14 }}>
+                    {b.kind === "strip" ? (
+                      <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>🏷️ {b.title}</Text>
+                    ) : (
+                      <>
+                        {!!b.tag && <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: "#F8CB46" }}>{b.tag.toUpperCase()}</Text>}
+                        <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{b.title || "(title likho)"}</Text>
+                        {!!b.sub && <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.8)" }}>{b.sub}</Text>}
+                      </>
+                    )}
                   </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1, color: "#7C5CFF" }}>{kindLabel.toUpperCase()}{b.linkKind && b.linkKind !== "none" ? ` → ${b.linkKind}:${b.linkValue}` : ""}</Text>
-                    <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{b.title || "(no title)"}</Text>
-                    <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>
-                      {b.sub || b.tag || "—"}{b.startsAt || b.endsAt ? ` • ⏰ ${S(b.startsAt, "…").slice(0, 10)} → ${S(b.endsAt, "…").slice(0, 10)}` : ""}
-                    </Text>
+                  {editMode && (
+                    <Pressable onPress={() => openEdit(b)} style={{ position: "absolute", right: 8, top: 8, height: 34, width: 34, borderRadius: 17, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ fontSize: 15 }}>✏️</Text>
+                    </Pressable>
+                  )}
+                  <View style={{ position: "absolute", left: 8, top: 8, borderRadius: 999, backgroundColor: "rgba(0,0,0,.55)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#fff" }}>{emoji} {label} • #{ix + 1}</Text>
                   </View>
                 </View>
-                <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Pressable onPress={() => move(b, -1)} disabled={ix === 0} style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center", opacity: ix === 0 ? 0.35 : 1 }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>↑</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, padding: 8 }}>
+                  <Pressable onPress={() => move(b, -1)} disabled={ix === 0} style={{ height: 34, width: 34, borderRadius: 10, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center", opacity: ix === 0 ? 0.35 : 1 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>↑</Text>
                   </Pressable>
-                  <Pressable onPress={() => move(b, 1)} disabled={ix === arr.length - 1} style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center", opacity: ix === arr.length - 1 ? 0.35 : 1 }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>↓</Text>
+                  <Pressable onPress={() => move(b, 1)} disabled={ix === arr.length - 1} style={{ height: 34, width: 34, borderRadius: 10, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center", opacity: ix === arr.length - 1 ? 0.35 : 1 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>↓</Text>
                   </Pressable>
-                  <Pressable onPress={() => flipActive(b)} style={{ flex: 1, borderRadius: 10, backgroundColor: on ? "#0C831F" : colors.chip, paddingVertical: 8, alignItems: "center" }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: on ? "#fff" : colors.ink2 }}>{on ? "Live ✓" : "Hidden"}</Text>
+                  <Pressable onPress={() => flipActive(b)} style={{ flex: 1, borderRadius: 10, backgroundColor: on ? "#0C831F" : colors.chip, paddingVertical: 9, alignItems: "center" }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: on ? "#fff" : colors.ink2 }}>{on ? "✅ Dikhega" : "🚫 Chhupa hai"}</Text>
                   </Pressable>
-                  <Pressable onPress={() => openEdit(b)} style={{ height: 32, width: 40, borderRadius: 10, backgroundColor: "#1573FF", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#fff" }}>Edit</Text>
-                  </Pressable>
-                  <Pressable onPress={() => remove(b)} style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "rgba(226,55,68,.12)", alignItems: "center", justifyContent: "center" }}>
-                    <Trash2 size={14} color="#E23744" />
-                  </Pressable>
+                  {editMode && (
+                    <>
+                      <Pressable onPress={() => openEdit(b)} style={{ height: 34, paddingHorizontal: 12, borderRadius: 10, backgroundColor: "#1573FF", alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>Edit</Text>
+                      </Pressable>
+                      <Pressable onPress={() => duplicate(b)} style={{ height: 34, width: 34, borderRadius: 10, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
+                        <Copy size={14} color={colors.ink2} />
+                      </Pressable>
+                      <Pressable onPress={() => remove(b)} style={{ height: 34, width: 34, borderRadius: 10, backgroundColor: "rgba(226,55,68,.12)", alignItems: "center", justifyContent: "center" }}>
+                        <Trash2 size={14} color="#E23744" />
+                      </Pressable>
+                    </>
+                  )}
                 </View>
               </View>
             );
           })}
+        </View>
       </View>
 
-      <Pressable onPress={() => (formOpen ? (setFormOpen(false), resetForm()) : openAdd())} style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 12 }}>
-        <Plus size={15} color={colors.ink} />
-        <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{formOpen ? "Close editor" : "New banner / ad / festival"}</Text>
-      </Pressable>
-
+      {/* ── Simple editor: aasaan shabdon me ── */}
       {formOpen && (
-        <Animated.View entering={FadeIn.duration(200)} style={{ marginTop: 8, gap: 8 }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: colors.ink3 }}>TYPE</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            {HOME_KINDS.map(([k, label, e]) => (
-              <Pressable key={k} onPress={() => { setKind(k); blip(600); }} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: kind === k ? "#7C5CFF" : colors.chip }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: kind === k ? "#fff" : colors.ink2 }}>{e} {label}</Text>
+        <Animated.View entering={FadeIn.duration(200)} style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 2, borderColor: "#7C5CFF", padding: 14, gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={labelStyle}>{editingId ? "✏️ Card badlo" : "➕ Naya card banao"}</Text>
+            <Pressable onPress={() => { setFormOpen(false); resetForm(); }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Band karo ✕</Text>
+            </Pressable>
+          </View>
+          <Text style={hintStyle}>Pehle type chuno — har type kahan dikhega neeche likha hai 👇</Text>
+          <View style={{ gap: 6 }}>
+            {HOME_KINDS.map(([k, label, e, hint]) => (
+              <Pressable key={k} onPress={() => { setKind(k); blip(600); }} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, padding: 10, backgroundColor: kind === k ? "#7C5CFF" : colors.card2 }}>
+                <Text style={{ fontSize: 20 }}>{e}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: kind === k ? "#fff" : colors.ink }}>{label}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: kind === k ? "rgba(255,255,255,.8)" : colors.ink3 }}>{hint}</Text>
+                </View>
+                {kind === k && <Check size={16} color="#fff" />}
               </Pressable>
             ))}
           </View>
-
-          <TextInput value={title} onChangeText={setTitle} placeholder={kind === "strip" ? "Strip text e.g. 50% OFF up to ₹100" : "Title e.g. 50% OFF Biryani"} placeholderTextColor={colors.ink3} style={inputStyle} />
-          {kind !== "strip" && (
-            <>
-              <TextInput value={tag} onChangeText={setTag} placeholder="Tag e.g. MEGHANA FEST" placeholderTextColor={colors.ink3} style={inputStyle} />
-              <TextInput value={sub} onChangeText={setSub} placeholder="Sub e.g. Code BAZAR50 • Free delivery" placeholderTextColor={colors.ink3} style={inputStyle} />
-              <TextInput value={cta} onChangeText={setCta} placeholder="Button e.g. Order now" placeholderTextColor={colors.ink3} style={inputStyle} />
-              <TextInput value={image} onChangeText={setImage} placeholder="Image URL (ya neeche store se chuno)" placeholderTextColor={colors.ink3} autoCapitalize="none" style={inputStyle} />
-              {storeImgs.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  {storeImgs.slice(0, 12).map((s) => (
-                    <Pressable key={S(s.id)} onPress={() => { setImage(S(s.image)); blip(600); }} style={{ height: 52, width: 76, borderRadius: 10, overflow: "hidden", borderWidth: image === S(s.image) ? 2 : 0, borderColor: "#7C5CFF" }}>
-                      <Img src={S(s.image)} style={{ width: "100%", height: "100%" }} />
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: colors.ink3 }}>TAP PE KAHAN JAYE</Text>
-              <View style={{ flexDirection: "row", gap: 6 }}>
-                {HOME_LINKS.map((l) => (
-                  <Pressable key={l} onPress={() => { setLinkKind(l); setLinkValue(""); blip(600); }} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: linkKind === l ? "#0C831F" : colors.chip }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: linkKind === l ? "#fff" : colors.ink2 }}>{l}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              {linkKind === "store" && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  {data.stores.slice(0, 15).map((s) => (
-                    <Pressable key={S(s.id)} onPress={() => setLinkValue(S(s.slug || s.id))} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: linkValue === S(s.slug || s.id) ? "#0C831F" : colors.chip }}>
-                      <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 11, color: linkValue === S(s.slug || s.id) ? "#fff" : colors.ink2 }}>{S(s.name).slice(0, 18)}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-              {linkKind === "category" && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  {catKeys.slice(0, 15).map((k) => (
-                    <Pressable key={k} onPress={() => setLinkValue(k)} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: linkValue === k ? "#0C831F" : colors.chip }}>
-                      <Text style={{ fontFamily: F.extra, fontSize: 11, color: linkValue === k ? "#fff" : colors.ink2 }}>{k}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-              {linkKind === "search" && (
-                <TextInput value={linkValue} onChangeText={setLinkValue} placeholder="Search text e.g. biryani" placeholderTextColor={colors.ink3} style={inputStyle} />
-              )}
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <TextInput value={startsAt} onChangeText={setStartsAt} placeholder="Start: 2026-12-01" placeholderTextColor={colors.ink3} style={{ ...inputStyle, flex: 1 }} />
-                <TextInput value={endsAt} onChangeText={setEndsAt} placeholder="End: 2026-12-31" placeholderTextColor={colors.ink3} style={{ ...inputStyle, flex: 1 }} />
-              </View>
-              <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Festival dates (Diwali/Christmas) yaha do — time pe auto on/off. Khali = hamesha live.</Text>
-            </>
-          )}
-          <Pressable onPress={save} style={{ borderRadius: 12, backgroundColor: "#0C831F", paddingVertical: 13, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>{editingId ? "Save changes" : "Publish live"}</Text>
+          <View style={{ gap: 8 }}>
+            <View>
+              <Text style={labelStyle}>✍️ Bada heading *</Text>
+              <TextInput value={title} onChangeText={setTitle} placeholder={kind === "strip" ? "e.g. 50% OFF up to ₹100" : "e.g. 50% OFF Biryani"} placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+            </View>
+            {kind !== "strip" && (
+              <>
+                <View>
+                  <Text style={labelStyle}>🔖 Upar chhota tag</Text>
+                  <TextInput value={tag} onChangeText={setTag} placeholder="e.g. MEGHANA FEST" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+                </View>
+                <View>
+                  <Text style={labelStyle}>📝 Neeche wali line</Text>
+                  <TextInput value={sub} onChangeText={setSub} placeholder="e.g. Code BAZAR50 • Free delivery" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+                </View>
+                <View>
+                  <Text style={labelStyle}>🔘 Button ka naam</Text>
+                  <TextInput value={cta} onChangeText={setCta} placeholder="e.g. Order now" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+                </View>
+                <View>
+                  <Text style={labelStyle}>🖼️ Photo</Text>
+                  <Text style={hintStyle}>URL chipkao YA neeche photo tap karo — turant lag jayegi</Text>
+                  <TextInput value={image} onChangeText={setImage} placeholder="https://… ya photo chuno 👇" placeholderTextColor={colors.ink3} autoCapitalize="none" style={[inputStyle, { marginTop: 4 }]} />
+                  {image ? (
+                    <View style={{ marginTop: 6, height: 110, borderRadius: 12, overflow: "hidden" }}>
+                      <Img src={image} style={{ width: "100%", height: "100%" }} />
+                    </View>
+                  ) : null}
+                  {storeImgs.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 6 }}>
+                      {storeImgs.slice(0, 12).map((s) => (
+                        <Pressable key={S(s.id)} onPress={() => { setImage(S(s.image)); blip(600); }} style={{ height: 56, width: 80, borderRadius: 10, overflow: "hidden", borderWidth: image === S(s.image) ? 2.5 : 0, borderColor: "#0C831F" }}>
+                          <Img src={S(s.image)} style={{ width: "100%", height: "100%" }} />
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+                <View>
+                  <Text style={labelStyle}>🎨 Rang (background)</Text>
+                  <Text style={hintStyle}>Koi rang tap karo — preview me turant dikhega</Text>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                    {COLOR_PRESETS.map((cc) => (
+                      <Pressable key={cc} onPress={() => { setC1(cc); blip(600); }} style={{ height: 38, width: 38, borderRadius: 19, backgroundColor: cc, borderWidth: c1 === cc ? 3 : 1, borderColor: c1 === cc ? "#0C831F" : colors.line }} />
+                    ))}
+                  </View>
+                </View>
+                {/* live mini preview */}
+                <View style={{ borderRadius: 14, overflow: "hidden", backgroundColor: c1, height: 96, justifyContent: "center", paddingHorizontal: 14 }}>
+                  {image ? <Img src={image} style={{ position: "absolute", width: "100%", height: "100%", opacity: 0.45 }} /> : null}
+                  <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: "#F8CB46" }}>{(tag || "TAG").toUpperCase()}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{title || "Tumhara heading yaha dikhega"}</Text>
+                  {!!(sub || cta) && <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.85)" }}>{sub} {cta ? `• [${cta}]` : ""}</Text>}
+                </View>
+                <View>
+                  <Text style={labelStyle}>👆 Dabane pe kahan jaye?</Text>
+                  <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
+                    {HOME_LINKS.map((l) => (
+                      <Pressable key={l} onPress={() => { setLinkKind(l); setLinkValue(""); blip(600); }} style={{ flex: 1, borderRadius: 999, paddingVertical: 9, alignItems: "center", backgroundColor: linkKind === l ? "#0C831F" : colors.card2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: linkKind === l ? "#fff" : colors.ink2 }}>{l === "none" ? "🚫 Kahin nahi" : l === "store" ? "🏪 Dukaan" : l === "category" ? "🗂️ Category" : "🔍 Search"}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {linkKind === "store" && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 6 }}>
+                      {data.stores.slice(0, 15).map((s) => (
+                        <Pressable key={S(s.id)} onPress={() => setLinkValue(S(s.slug || s.id))} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: linkValue === S(s.slug || s.id) ? "#0C831F" : colors.card2 }}>
+                          <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 11, color: linkValue === S(s.slug || s.id) ? "#fff" : colors.ink2 }}>{S(s.name).slice(0, 18)}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )}
+                  {linkKind === "category" && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 6 }}>
+                      {catKeys.slice(0, 15).map((k) => (
+                        <Pressable key={k} onPress={() => setLinkValue(k)} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: linkValue === k ? "#0C831F" : colors.card2 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 11, color: linkValue === k ? "#fff" : colors.ink2 }}>{k}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )}
+                  {linkKind === "search" && (
+                    <TextInput value={linkValue} onChangeText={setLinkValue} placeholder="e.g. biryani likho" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 6 }]} />
+                  )}
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={labelStyle}>📅 Kab se</Text>
+                    <TextInput value={startsAt} onChangeText={setStartsAt} placeholder="2026-12-01" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={labelStyle}>📅 Kab tak</Text>
+                    <TextInput value={endsAt} onChangeText={setEndsAt} placeholder="2026-12-31" placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+                  </View>
+                </View>
+                <Text style={hintStyle}>Khali chhodo = hamesha dikhega. Diwali/Christmas ke liye date do — auto on/off.</Text>
+              </>
+            )}
+          </View>
+          <Pressable onPress={save} style={{ borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 14, alignItems: "center" }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{editingId ? "💾 Save karo" : "➕ Card jodo"}</Text>
           </Pressable>
-          <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3, textAlign: "center" }}>Save hote hi customer home pe dikhega (home khulne pe auto-refresh).</Text>
+          <Text style={[hintStyle, { textAlign: "center" }]}>Save hote hi list me aa jayega. Sabko dikhane ke liye neeche 🚀 Publish dabao.</Text>
         </Animated.View>
       )}
+
+      {/* ── Home ke shabd (har text editable) ── */}
+      <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+        <Pressable onPress={() => setCfgOpen(!cfgOpen)} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ height: 38, width: 38, borderRadius: 12, backgroundColor: "#7C5CFF", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 18 }}>✏️</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={labelStyle}>Home ke shabd badlo</Text>
+            <Text style={hintStyle}>Search, headings, festival text — sab yaha se</Text>
+          </View>
+          <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink3 }}>{cfgOpen ? "▲" : "▼"}</Text>
+        </Pressable>
+        {cfgOpen && (
+          <View style={{ marginTop: 10, gap: 10 }}>
+            {CONFIG_FIELDS.map((f) => (
+              <View key={f.k}>
+                <Text style={labelStyle}>{f.label}</Text>
+                <TextInput value={cfg[f.k] ?? ""} onChangeText={(v) => saveCfg(f.k, v)} placeholder={f.hint} placeholderTextColor={colors.ink3} style={[inputStyle, { marginTop: 4 }]} />
+              </View>
+            ))}
+            <Text style={labelStyle}>👁️ Kaun-kaun se hisse dikhen?</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {SECTION_TOGGLES.map((t) => {
+                const on = (cfg[t.k] ?? "1") !== "0";
+                return (
+                  <Pressable key={t.k} onPress={() => saveCfg(t.k, on ? "0" : "1")} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: on ? "#0C831F" : colors.card2 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: on ? "#fff" : colors.ink2 }}>{on ? "✅" : "🚫"} {t.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={hintStyle}>Badalte hi sab phones pe reflect (next home open pe).</Text>
+          </View>
+        )}
+      </View>
+
+      {/* ── Publish (har jagah push) + History (revert) ── */}
+      <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 10 }}>
+        <Text style={labelStyle}>🚀 Sabko bhejo (Publish)</Text>
+        <Text style={hintStyle}>Publish dabate hi har phone pe naya home pahunch jayega — chahe app kahin bhi chal rahi ho (next open/sync pe).</Text>
+        <TextInput value={publishNote} onChangeText={setPublishNote} placeholder="Note likho e.g. Diwali sale live 🪔" placeholderTextColor={colors.ink3} style={inputStyle} />
+        <Pressable onPress={publish} disabled={publishing} style={{ borderRadius: 14, backgroundColor: publishing ? colors.chip : "#0B0B0F", paddingVertical: 14, alignItems: "center", opacity: publishing ? 0.6 : 1 }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 14, color: publishing ? colors.ink3 : "#D8F34E" }}>{publishing ? "Bhej rahe hain…" : "🚀 Publish — sabke app pe bhejo"}</Text>
+        </Pressable>
+        <Pressable onPress={() => setHistOpen(!histOpen)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12 }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>🕘 Purane versions ({versions.length}) — galti ho to wapas lao</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink3 }}>{histOpen ? "▲" : "▼"}</Text>
+        </Pressable>
+        {histOpen && (
+          <View style={{ gap: 8 }}>
+            {versions.length === 0 && <Empty text="Abhi koi publish nahi hua — pehla Publish dabao, history yahi banegi." />}
+            {versions.map((v) => (
+              <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, backgroundColor: colors.card2, padding: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{v.note || "Publish"}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>
+                    {v.blockCount ?? ""} cards • {v.createdAt ? String(v.createdAt).slice(0, 16).replace("T", " ") : ""}
+                  </Text>
+                </View>
+                <Pressable onPress={() => revert(v)} style={{ borderRadius: 10, backgroundColor: "#E8830C", paddingHorizontal: 12, paddingVertical: 8 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#fff" }}>↩️ Wapas lao</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
     </View>
   );
 }

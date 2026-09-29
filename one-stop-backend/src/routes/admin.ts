@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { asc, eq, desc } from "drizzle-orm";
 import { auth, getUser } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { users, stores, products, coupons, orders, categoryRequests, homeBlocks } from "../db/schema.js";
+import { users, stores, products, coupons, orders, categoryRequests, homeBlocks, homeConfig, homeVersions } from "../db/schema.js";
+import { ensureHomeTables, readHomeConfig, HOME_CONFIG_DEFAULTS } from "./home.js";
 import { randomBytes } from "node:crypto";
 import { logError, logInfo, logOk, logWarn, maskPhone } from "../lib/logger.js";
 
@@ -291,4 +292,111 @@ adminRoute.delete("/home/:id", auth, async (c: any) => {
   await db.delete(homeBlocks).where(eq(homeBlocks.id, id));
   logInfo(`[admin] home block deleted ${String(id).slice(0, 8)}`);
   return c.json({ ok: true });
+});
+
+// ---- Home texts (search/greeting/festival/sections) — simple key-value ----
+adminRoute.get("/home-config", auth, async (c: any) => {
+  const err = requireSuper(c); if (err) return err;
+  const config = await readHomeConfig();
+  return c.json({ ok: true, config, defaults: HOME_CONFIG_DEFAULTS });
+});
+
+adminRoute.patch("/home-config", auth, async (c: any) => {
+  const err = requireSuper(c); if (err) return err;
+  await ensureHomeTables();
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const keys = Object.keys(HOME_CONFIG_DEFAULTS);
+  let n = 0;
+  for (const k of keys) {
+    if (typeof b[k] === "string") {
+      const v = String(b[k]).slice(0, 500);
+      try {
+        await db.insert(homeConfig).values({ key: k, value: v }).onConflictDoUpdate({ target: homeConfig.key, set: { value: v } });
+        n++;
+      } catch { /* ignore one key */ }
+    }
+  }
+  if (!n) return c.json({ ok: false, error: "empty" }, 400);
+  logOk(`[admin] home-config patched (${n} keys)`);
+  return c.json({ ok: true, config: await readHomeConfig() });
+});
+
+// ---- Publish + history + revert (har jagah push = version bump, app poll pe fresh) ----
+async function snapshotNow() {
+  await ensureHomeTables();
+  const [blocks, config] = await Promise.all([
+    db.select().from(homeBlocks).orderBy(asc(homeBlocks.sort), asc(homeBlocks.createdAt)).limit(200),
+    readHomeConfig(),
+  ]);
+  return { blocks, config };
+}
+
+adminRoute.post("/home/publish", auth, async (c: any) => {
+  const err = requireSuper(c); if (err) return err;
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const note = String(b.note ?? "").slice(0, 240);
+  const snap = await snapshotNow();
+  const me = getUser(c);
+  const rows = await db.insert(homeVersions).values({
+    note: note || `Publish ${new Date().toLocaleString("en-IN")}`,
+    snapshot: snap as unknown as { blocks: Record<string, unknown>[]; config: Record<string, string> },
+    createdBy: String(me.phone ?? ""),
+  }).returning();
+  // purani history halki rakho — latest 20 rakho
+  try {
+    const all = await db.select({ id: homeVersions.id }).from(homeVersions).orderBy(desc(homeVersions.createdAt)).limit(100);
+    if (all.length > 20) {
+      const drop = all.slice(20);
+      for (const d of drop) await db.delete(homeVersions).where(eq(homeVersions.id, d.id));
+    }
+  } catch { /* ignore */ }
+  logOk(`[admin] home published: ${String(rows[0]?.id).slice(0, 8)} ${note.slice(0, 40)}`);
+  return c.json({ ok: true, version: rows[0] });
+});
+
+adminRoute.get("/home-versions", auth, async (c: any) => {
+  const err = requireSuper(c); if (err) return err;
+  await ensureHomeTables();
+  try {
+    const rows = await db.select().from(homeVersions).orderBy(desc(homeVersions.createdAt)).limit(20);
+    return c.json({ versions: rows.map((r) => ({ ...r, blockCount: Array.isArray((r.snapshot as { blocks?: unknown[] })?.blocks) ? (r.snapshot as { blocks: unknown[] }).blocks.length : 0 })) });
+  } catch {
+    return c.json({ versions: [] });
+  }
+});
+
+adminRoute.post("/home/revert", auth, async (c: any) => {
+  const err = requireSuper(c); if (err) return err;
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const versionId = String(b.versionId ?? "");
+  if (!versionId) return c.json({ ok: false, error: "versionId required" }, 400);
+  await ensureHomeTables();
+  const found = await db.select().from(homeVersions).where(eq(homeVersions.id, versionId)).limit(1);
+  const snap = found[0]?.snapshot as unknown as { blocks?: Record<string, unknown>[]; config?: Record<string, string> } | undefined;
+  if (!snap) return c.json({ ok: false, error: "not found" }, 404);
+  // blocks restore: sab hata ke snapshot wale daalo (ids naye banenge — app ko farak nahi, sort preserved)
+  await db.delete(homeBlocks);
+  const sblocks = Array.isArray(snap.blocks) ? snap.blocks : [];
+  for (const sbo of sblocks) {
+    try {
+      const patch = homePatchFrom(sbo as Record<string, unknown>);
+      await db.insert(homeBlocks).values(patch as typeof homeBlocks.$inferInsert);
+    } catch { /* ek row fail to bhi baaki restore karo */ }
+  }
+  const sconfig = snap.config ?? {};
+  for (const [k, v] of Object.entries(sconfig)) {
+    if (!(k in HOME_CONFIG_DEFAULTS) || typeof v !== "string") continue;
+    try {
+      await db.insert(homeConfig).values({ key: k, value: String(v).slice(0, 500) }).onConflictDoUpdate({ target: homeConfig.key, set: { value: String(v).slice(0, 500) } });
+    } catch { /* ignore */ }
+  }
+  const me = getUser(c);
+  const cur = await snapshotNow();
+  const rows = await db.insert(homeVersions).values({
+    note: `Revert → ${String(found[0]?.note ?? versionId).slice(0, 60)}`,
+    snapshot: cur as unknown as { blocks: Record<string, unknown>[]; config: Record<string, string> },
+    createdBy: String(me.phone ?? ""),
+  }).returning();
+  logOk(`[admin] home reverted to ${versionId.slice(0, 8)}`);
+  return c.json({ ok: true, version: rows[0] });
 });

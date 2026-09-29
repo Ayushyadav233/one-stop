@@ -37,7 +37,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { blip, useMarketplace, useOSB } from "@/lib/osb-store";
-import { apiGetCoupons, apiMyReviews, type ApiHomeBlock } from "@/lib/api";
+import { apiGetCoupons, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
 import { useT } from "@/lib/i18n";
@@ -93,6 +93,13 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const { colors } = useTheme();
    const g = useGreeting();
    const role = useOSB((s) => s.role);
+   const isSuper = role === "super_admin";
+   const homeEditMode = useOSB((s) => s.homeEditMode);
+   // Live edit: kaunsa editor khula hai — block / texts / strips / new
+   const [editTarget, setEditTarget] = useState<null | { t: "block"; block: ApiHomeBlock } | { t: "texts" } | { t: "strips" } | { t: "new"; kind: ApiHomeBlock["kind"] }>(null);
+   const [publishNote, setPublishNote] = useState("");
+   const [versions, setVersions] = useState<ApiHomeVersion[]>([]);
+   const [showHistory, setShowHistory] = useState(false);
    const [banner, setBanner] = useState(0);
   const [locOpen, setLocOpen] = useState(false);
   const bannerRef = useRef<ScrollView>(null);
@@ -103,6 +110,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
 
   const { stores, products } = useMarketplace();
   const homeBlocks = useOSB((s) => s.homeBlocks);
+  const homeConfig = useOSB((s) => s.homeConfig);
+  const cfg = { ...HOME_CONFIG_DEFAULTS, ...homeConfig };
+  const showFestival = cfg.showFestival !== "0";
+  const showAds = cfg.showAds !== "0";
+  const showStrips = cfg.showStrips !== "0";
+  const showCategories = cfg.showCategories !== "0";
   const syncHomeBlocks = useOSB((s) => s.syncHomeBlocks);
   // Home khulne pe CMS refresh (cheap, fail-soft) — admin edits turant dikhen.
   useEffect(() => {
@@ -186,10 +199,17 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
     blip(700);
   };
 
-  const liveFestival = !activeCat ? homeBlocks.find((b) => b.kind === "festival") : undefined;
-  const liveAds = !activeCat ? homeBlocks.filter((b) => b.kind === "ad") : [];
-  const liveStripTitles = !activeCat ? homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "") : [];
-  const stripTitles = liveStripTitles.length > 0 ? liveStripTitles : DEFAULT_STRIPS;
+  const liveFestival = !activeCat && showFestival ? homeBlocks.find((b) => b.kind === "festival") : undefined;
+  const liveAds = !activeCat && showAds ? homeBlocks.filter((b) => b.kind === "ad") : [];
+  const liveStripTitles = !activeCat && showStrips ? homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "") : [];
+  const stripTitles = liveStripTitles.length > 0 ? liveStripTitles : String(cfg.stripsDefault || "").split("|").map((s) => s.trim()).filter(Boolean);
+  // Banner cards ↔ CMS blocks mapping (edit badge ko sahi block chahiye)
+  const liveBannerBlocks: (ApiHomeBlock | null)[] = useMemo(() => {
+    if (activeCat) return banners.map(() => null);
+    const live = homeBlocks.filter((b) => b.kind === "banner");
+    return banners.map((_, i) => live[i] ?? null);
+  }, [banners, homeBlocks, activeCat]);
+  const editing = isSuper && homeEditMode && !activeCat;
 
   // Auto-advance banner carousel; reset index when category changes so old index doesn't atak jaaye.
   useEffect(() => {
@@ -241,12 +261,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         </View>
         <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
           <Pressable
-            onPress={() => set({ tab: "search" })}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, paddingVertical: 12 }}
+            onPress={() => (editing ? setEditTarget({ t: "texts" }) : set({ tab: "search" }))}
+            style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: editing ? 2 : 1, borderColor: editing ? "#D8F34E" : colors.line, paddingHorizontal: 14, paddingVertical: 12 }}
           >
             <Search size={18} strokeWidth={2.6} color="#E23744" />
             <Text numberOfLines={1} style={{ flex: 1, fontFamily: F.medium, fontSize: 13.5, color: colors.ink3 }}>
-              Search “biryani”, “A2 milk”, “plumber”…
+              {cfg.searchPlaceholder || "Search…"}
             </Text>
             <View style={{ height: 20, width: 1, backgroundColor: colors.line }} />
             <Mic size={17} color={colors.ink2} />
@@ -254,39 +274,57 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
           </Pressable>
          </View>
        </View>
-       {role === "super_admin" && (
-         <Pressable onPress={() => { set({ mode: "admin", tab: "overview" }); blip(800); }} style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#0B0B0F", paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
-           <View style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
-             <Text style={{ fontFamily: F.extra, fontSize: 16 }}>🛡️</Text>
-           </View>
-           <View style={{ flex: 1 }}>
-             <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Super Admin</Text>
-             <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.5)" }}>Manage stores, products, banners, coupons</Text>
-           </View>
-           <ChevronRight size={16} color="rgba(255,255,255,.4)" />
-         </Pressable>
-       )}
+        {role === "super_admin" && (
+          <View style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#0B0B0F", paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 16 }}>🛡️</Text>
+            </View>
+            <Pressable onPress={() => { set({ mode: "admin", tab: "overview" }); blip(800); }} style={{ flex: 1 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Super Admin</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.5)" }}>Panel • orders • coupons</Text>
+            </Pressable>
+            <Pressable onPress={() => { set({ homeEditMode: !homeEditMode }); blip(700); }} style={{ borderRadius: 999, backgroundColor: homeEditMode ? "#D8F34E" : "#fff", paddingHorizontal: 12, paddingVertical: 8 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0B0B0F" }}>{homeEditMode ? "✏️ Editing…" : "🎨 Edit Home"}</Text>
+            </Pressable>
+          </View>
+        )}
+        {/* LIVE edit bar — home pe hi sab kuch */}
+        {editing && (
+          <View style={{ marginHorizontal: 16, marginTop: 10, borderRadius: 14, backgroundColor: "#D8F34E", paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#0B0B0F" }}>🎨 LIVE EDIT</Text>
+            <Text style={{ flex: 1, fontFamily: F.medium, fontSize: 10.5, color: "#0B0B0F" }}>Kisi bhi ✏️ ko tap karo — wahin badlo, wahin dikhega</Text>
+            <Pressable onPress={() => setEditTarget({ t: "new", kind: "banner" })} style={{ borderRadius: 999, backgroundColor: "#0B0B0F", paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#D8F34E" }}>+ Card</Text>
+            </Pressable>
+            <Pressable onPress={() => set({ homeEditMode: false })} style={{ borderRadius: 999, backgroundColor: "rgba(0,0,0,.12)", paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#0B0B0F" }}>Done</Text>
+            </Pressable>
+          </View>
+        )}
        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
-        {/* greeting */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12 }}>
+        {/* greeting — edit mode me tap → shabd badlo */}
+        <Pressable onPress={() => { if (editing) setEditTarget({ t: "texts" }); }} disabled={!editing}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12, opacity: 1 }}>
           <View>
             <Text style={{ fontFamily: F.extra, fontSize: 19, letterSpacing: -0.4, color: colors.ink }}>
-              {g.label}, {userName || "there"} 👋
+              {g.label}, {userName || "there"} 👋{editing ? " ✏️" : ""}
             </Text>
             <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>
-              {g.sub} • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>12 min</Text> fastest
+              {cfg.greetingSub || g.sub} • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>12 min</Text> fastest
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: "#0E3B2E", paddingHorizontal: 10, paddingVertical: 6 }}>
             <LiveDot color="#34D399" />
-            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#D8F34E" }}>LIVE</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#D8F34E" }}>{(cfg.liveBadge || "LIVE").toUpperCase()}</Text>
           </View>
         </View>
+        </Pressable>
 
         {/* category grid */}
+        {showCategories && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: -0.2, color: colors.ink }}>Explore {allCats.length} categories</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: -0.2, color: colors.ink }}>{cfg.categoriesTitle || `Explore ${allCats.length} categories`}</Text>
             {activeCat && (
               <Pressable onPress={() => { set({ category: "all" }); blip(480); }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#E23744" }}>Clear ✕</Text>
@@ -328,6 +366,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             </Animated.View>
           </View>
         </View>
+        )}
 
         {/* active-cat banner */}
         {activeCat && (
@@ -360,7 +399,8 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
             onMomentumScrollEnd={(e) => setBanner(Math.min(banners.length - 1, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / step))))}
           >
             {banners.map((b, i) => (
-              <SpringBtn key={i} onPress={() => tapBanner(b)} style={{ width: cardW, height: 148, borderRadius: 20, overflow: "hidden" }}>
+              <View key={i} style={{ position: "relative" }}>
+              <SpringBtn onPress={() => (editing && liveBannerBlocks[i] ? setEditTarget({ t: "block", block: liveBannerBlocks[i]! }) : tapBanner(b))} style={{ width: cardW, height: 148, borderRadius: 20, overflow: "hidden" }}>
                 {b.img ? (
                   <Img src={b.img} style={{ position: "absolute", width: "100%", height: "100%" }} eager={i === 0} />
                 ) : (
@@ -378,6 +418,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                   </View>
                 </View>
               </SpringBtn>
+              {editing && liveBannerBlocks[i] && (
+                <Pressable onPress={() => { setEditTarget({ t: "block", block: liveBannerBlocks[i]! }); blip(600); }} style={{ position: "absolute", right: 8, top: 8, height: 34, width: 34, borderRadius: 17, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 4 }}>
+                  <Text style={{ fontSize: 15 }}>✏️</Text>
+                </Pressable>
+              )}
+              </View>
             ))}
           </ScrollView>
           <View style={{ marginTop: 8, flexDirection: "row", justifyContent: "center", gap: 6 }}>
@@ -455,22 +501,30 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
           </ScrollView>
         </View>
 
-        {/* offer strip — admin CMS (strip blocks) ya default */}
+        {/* offer strip — tap ✏️ to edit lines live */}
+        <View style={{ position: "relative" }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingBottom: 4 }}>
           {stripTitles.map((t) => (
-            <View key={t} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(14,59,46,.3)", backgroundColor: "rgba(216,243,78,.25)", paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Pressable key={t} onPress={() => { if (editing) setEditTarget({ t: "strips" }); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(14,59,46,.3)", backgroundColor: "rgba(216,243,78,.25)", paddingHorizontal: 12, paddingVertical: 6 }}>
               <BadgePercent size={13} color="#0E3B2E" />
               <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0E3B2E" }}>{t}</Text>
-            </View>
+            </Pressable>
           ))}
         </ScrollView>
+        {editing && (
+          <Pressable onPress={() => setEditTarget({ t: "strips" })} style={{ position: "absolute", right: 10, top: -14, height: 30, width: 30, borderRadius: 15, backgroundColor: "#0B0B0F", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 13 }}>✏️</Text>
+          </Pressable>
+        )}
+        </View>
 
         {/* admin ads — CMS se, banner jaisa card */}
         {liveAds.length > 0 && (
           <View style={{ paddingTop: 16 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }} snapToInterval={step} snapToAlignment="start" decelerationRate="fast">
               {liveAds.map((a) => (
-                <SpringBtn key={a.id} onPress={() => tapBanner(blockToBanner(a, 1))} style={{ width: cardW, height: 120, borderRadius: 20, overflow: "hidden" }}>
+                <View key={a.id} style={{ position: "relative" }}>
+                <SpringBtn onPress={() => (editing ? setEditTarget({ t: "block", block: a }) : tapBanner(blockToBanner(a, 1)))} style={{ width: cardW, height: 120, borderRadius: 20, overflow: "hidden" }}>
                   {a.image ? <Img src={a.image} style={{ position: "absolute", width: "100%", height: "100%" }} /> : <View style={{ position: "absolute", width: "100%", height: "100%", backgroundColor: "#0E3B2E" }} />}
                   <LinearGradient colors={[a.c1 || "rgba(10,10,10,.8)", "rgba(10,10,10,.1)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
                   <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
@@ -488,6 +542,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                     ) : null}
                   </View>
                 </SpringBtn>
+                {editing && (
+                  <Pressable onPress={() => setEditTarget({ t: "block", block: a })} style={{ position: "absolute", right: 8, top: 8, height: 34, width: 34, borderRadius: 17, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 15 }}>✏️</Text>
+                  </Pressable>
+                )}
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -508,30 +568,280 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         {/* rails */}
         {!activeCat && <CategoryRails cats={allCats} onStore={onStore} />}
 
-        {/* festive — admin CMS (festival block) ya default Diwali spotlight */}
+        {/* festive — admin CMS (festival block) ya editable fallback */}
+        {showFestival && (
         <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-          <SpringBtn onPress={() => { if (liveFestival) tapBanner(blockToBanner(liveFestival, 2)); }} style={{ borderRadius: 22, overflow: "hidden" }}>
+          <View style={{ position: "relative" }}>
+          <SpringBtn onPress={() => { if (editing && liveFestival) setEditTarget({ t: "block", block: liveFestival }); else if (editing) setEditTarget({ t: "texts" }); else if (liveFestival) tapBanner(blockToBanner(liveFestival, 2)); }} style={{ borderRadius: 22, overflow: "hidden" }}>
             <Img src={liveFestival?.image || STORES[7].image} style={{ position: "absolute", width: "100%", height: "100%" }} />
             <LinearGradient colors={[liveFestival?.c1 || "rgba(74,14,46,.92)", liveFestival?.c2 || "rgba(74,14,46,.55)", "transparent"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ position: "absolute", width: "100%", height: "100%" }} />
             <View style={{ padding: 20 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Sparkles size={12} color="#FFD166" />
-                <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>{(liveFestival?.tag || "DIWALI EDIT IS LIVE").toUpperCase()}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>{(liveFestival?.tag || cfg.festivalTitle || "FESTIVAL").toUpperCase()}</Text>
               </View>
-              <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 21, lineHeight: 26, color: "#fff" }}>{liveFestival?.title || "Sweets, diyas & gifts"}{"\n"}{liveFestival?.sub || "from 14 local shops 🪔"}</Text>
+              <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 21, lineHeight: 26, color: "#fff" }}>{liveFestival?.title || cfg.festivalTitle || "Festive picks"}{"\n"}{liveFestival?.sub || cfg.festivalSub || ""}</Text>
               <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
                 <View style={{ borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 8 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || "Shop festive"}</Text>
-                </View>
-                <View style={{ borderRadius: 999, backgroundColor: "rgba(255,255,255,.2)", paddingHorizontal: 14, paddingVertical: 8 }}>
-                  <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: "#fff" }}>Send gift</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || cfg.festivalCta || "Shop now"}</Text>
                 </View>
               </View>
             </View>
           </SpringBtn>
+          {editing && (
+            <Pressable onPress={() => setEditTarget(liveFestival ? { t: "block", block: liveFestival } : { t: "texts" })} style={{ position: "absolute", right: 10, top: 10, height: 34, width: 34, borderRadius: 17, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontSize: 15 }}>✏️</Text>
+            </Pressable>
+          )}
+          </View>
         </View>
+        )}
       </ScrollView>
+      {/* publish bar + editor sheet — home pe hi */}
+      {editing && (
+        <HomePublishBar
+          note={publishNote} setNote={setPublishNote}
+          versions={versions} setVersions={setVersions}
+          showHistory={showHistory} setShowHistory={setShowHistory}
+        />
+      )}
+      {editTarget && (
+        <HomeLiveSheet
+          target={editTarget}
+          cfg={cfg}
+          onClose={() => setEditTarget(null)}
+        />
+      )}
       {locOpen && <ChangeLocationSheet onClose={() => setLocOpen(false)} />}
+    </View>
+  );
+}
+
+/* ── Home live edit: publish bar + bottom editor (home screen pe hi) ── */
+function HomePublishBar({ note, setNote, versions, setVersions, showHistory, setShowHistory }: {
+  note: string; setNote: (v: string) => void;
+  versions: ApiHomeVersion[]; setVersions: (v: ApiHomeVersion[]) => void;
+  showHistory: boolean; setShowHistory: (v: boolean) => void;
+}) {
+  const syncHomeBlocks = useOSB((s) => s.syncHomeBlocks);
+  const { colors } = useTheme();
+  useEffect(() => {
+    apiAdminHomeVersions().then(setVersions).catch(() => {});
+  }, []);
+  const publish = () => {
+    void apiAdminPublishHome(note.trim()).then((j) => {
+      if (j?.ok) {
+        blip(920, 0.2);
+        Alert.alert("🚀 Live ho gaya", "Naya home sabke phones pe pahunch jayega.");
+        setNote("");
+        apiAdminHomeVersions().then(setVersions).catch(() => {});
+        syncHomeBlocks();
+      } else Alert.alert("Fail", "Net check karke retry karo.");
+    });
+  };
+  return (
+    <View style={{ marginHorizontal: 12, marginBottom: 8, borderRadius: 16, backgroundColor: "#0B0B0F", padding: 12 }}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TextInput value={note} onChangeText={setNote} placeholder="Note e.g. Diwali sale 🪔" placeholderTextColor="rgba(255,255,255,.4)" style={{ flex: 1, borderRadius: 10, backgroundColor: "rgba(255,255,255,.1)", paddingHorizontal: 12, paddingVertical: 9, fontFamily: F.semi, fontSize: 12, color: "#fff" }} />
+        <Pressable onPress={publish} style={{ borderRadius: 10, backgroundColor: "#D8F34E", paddingHorizontal: 16, justifyContent: "center" }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#0B0B0F" }}>🚀 Publish</Text>
+        </Pressable>
+      </View>
+      <Pressable onPress={() => { setShowHistory(!showHistory); if (!showHistory) apiAdminHomeVersions().then(setVersions).catch(() => {}); }} style={{ marginTop: 8, alignItems: "center" }}>
+        <Text style={{ fontFamily: F.semi, fontSize: 11, color: "rgba(255,255,255,.6)" }}>🕘 History ({versions.length}) — wapas lao {showHistory ? "▲" : "▼"}</Text>
+      </Pressable>
+      {showHistory && (
+        <View style={{ marginTop: 6, gap: 6 }}>
+          {versions.map((v) => (
+            <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, backgroundColor: "rgba(255,255,255,.08)", padding: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#fff" }}>{v.note || "Publish"}</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 10, color: "rgba(255,255,255,.5)" }}>{v.blockCount ?? ""} cards • {String(v.createdAt ?? "").slice(0, 16).replace("T", " ")}</Text>
+              </View>
+              <Pressable onPress={() => {
+                Alert.alert("Wapas lao?", `“${v.note || "purana"}” live hoga. Abhi wala safe rahega.`, [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Revert", onPress: () => { void apiAdminRevertHome(v.id).then(() => { syncHomeBlocks(); Alert.alert("↩️ Ho gaya", "Purana home live hai."); }); } },
+                ]);
+              }} style={{ borderRadius: 8, backgroundColor: "#E8830C", paddingHorizontal: 10, paddingVertical: 7 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>↩️ Lao</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+type EditTarget = null | { t: "block"; block: ApiHomeBlock } | { t: "texts" } | { t: "strips" } | { t: "new"; kind: ApiHomeBlock["kind"] };
+
+function HomeLiveSheet({ target, cfg, onClose }: { target: Exclude<EditTarget, null>; cfg: Record<string, string>; onClose: () => void }) {
+  const set = useOSB((s) => s.set);
+  const syncHomeBlocks = useOSB((s) => s.syncHomeBlocks);
+  const { colors } = useTheme();
+  useSheetBackCloser(true, onClose);
+  const [title, setTitle] = useState(target.t === "block" ? target.block.title || "" : "");
+  const [tag, setTag] = useState(target.t === "block" ? target.block.tag || "" : "");
+  const [sub, setSub] = useState(target.t === "block" ? target.block.sub || "" : "");
+  const [cta, setCta] = useState(target.t === "block" ? target.block.cta || "" : "");
+  const [image, setImage] = useState(target.t === "block" ? target.block.image || "" : "");
+  const [c1, setC1] = useState(target.t === "block" ? target.block.c1 || "rgba(10,10,10,.78)" : "rgba(10,10,10,.78)");
+  const [texts, setTexts] = useState<Record<string, string>>({ ...cfg });
+  const [strips, setStrips] = useState(() => {
+    if (target.t === "strips") {
+      const cur = useOSB.getState().homeBlocks.filter((b) => b.kind === "strip").map((b) => b.title || "").filter(Boolean);
+      return (cur.length ? cur : String(cfg.stripsDefault || "").split("|")).join(" | ");
+    }
+    return "";
+  });
+  const input = { borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13.5, color: colors.ink } as const;
+
+  const saveBlock = () => {
+    if (!title.trim()) { Alert.alert("Heading likho", "Bada heading zaroori hai."); return; }
+    const patch = { tag: tag.trim(), title: title.trim(), sub: sub.trim(), cta: cta.trim(), image: image.trim(), c1 };
+    if (target.t === "new") {
+      const blocks = useOSB.getState().homeBlocks;
+      const maxSort = blocks.reduce((a, b) => Math.max(a, b.sort ?? 0), 0);
+      void apiAdminPostHomeBlock({ ...patch, kind: target.kind, active: true, sort: maxSort + 1 }).then(() => {
+        // turant screen pe dikhe (optimistic) + backend sync
+        set({ homeBlocks: [...blocks, { id: `tmp-${Date.now()}`, kind: target.kind, sort: maxSort + 1, ...patch } as ApiHomeBlock] });
+        syncHomeBlocks(); onClose(); blip(920, 0.15);
+      });
+    } else if (target.t === "block") {
+      const id = target.block.id;
+      void apiAdminPatchHomeBlock(id, patch).then(() => {
+        const blocks = useOSB.getState().homeBlocks.map((b) => (b.id === id ? { ...b, ...patch } : b));
+        set({ homeBlocks: blocks });
+        syncHomeBlocks(); onClose(); blip(920, 0.15);
+      });
+    }
+  };
+  const hideBlock = () => {
+    if (target.t !== "block") return;
+    const id = target.block.id;
+    const on = target.block.active !== false;
+    void apiAdminPatchHomeBlock(id, { active: !on }).then(() => {
+      set({ homeBlocks: useOSB.getState().homeBlocks.map((b) => (b.id === id ? { ...b, active: !on } : b)) });
+      syncHomeBlocks(); onClose();
+    });
+  };
+  const deleteBlock = () => {
+    if (target.t !== "block") return;
+    const id = target.block.id;
+    Alert.alert("Hataye?", `"${target.block.title}” home se hat jayega.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Hatao", style: "destructive", onPress: () => {
+        void apiAdminDeleteHomeBlock(id).then(() => {
+          set({ homeBlocks: useOSB.getState().homeBlocks.filter((b) => b.id !== id) });
+          syncHomeBlocks(); onClose();
+        });
+      } },
+    ]);
+  };
+  const saveTexts = () => {
+    const patch: Record<string, string> = {};
+    for (const k of ["searchPlaceholder", "greetingSub", "categoriesTitle", "festivalTitle", "festivalSub", "festivalCta"]) {
+      if (typeof texts[k] === "string") patch[k] = texts[k].slice(0, 200);
+    }
+    // turant screen pe
+    set({ homeConfig: { ...useOSB.getState().homeConfig, ...patch } });
+    void apiAdminPatchHomeConfig(patch).then(() => { syncHomeBlocks(); onClose(); blip(760); });
+  };
+  const saveStrips = () => {
+    const lines = strips.split(/[|\n]/).map((s) => s.trim()).filter(Boolean);
+    if (!lines.length) { Alert.alert("Ek line likho", "e.g. 50% OFF up to ₹100"); return; }
+    const cur = useOSB.getState().homeBlocks.filter((b) => b.kind === "strip");
+    // simple: pehli N strips update, extra create, bachi delete
+    const ops: Promise<unknown>[] = lines.map((t, i) => {
+      if (cur[i]) return apiAdminPatchHomeBlock(cur[i].id, { title: t, active: true }).then(() => {});
+      const maxSort = 100 + i;
+      return apiAdminPostHomeBlock({ kind: "strip", title: t, active: true, sort: maxSort }).then(() => {});
+    });
+    cur.slice(lines.length).forEach((b) => { ops.push(apiAdminDeleteHomeBlock(b.id).then(() => {})); });
+    void Promise.all(ops).then(() => { syncHomeBlocks(); onClose(); blip(760); });
+  };
+
+  return (
+    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.5)", justifyContent: "flex-end" }}>
+      <Pressable onPress={onClose} style={{ flex: 1 }} />
+      <Animated.View entering={SlideInRight.duration(220)} style={{ maxHeight: "82%", borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: colors.surface, padding: 16 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 20 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>
+              {target.t === "texts" ? "✏️ Shabd badlo" : target.t === "strips" ? "🏷️ Offer pattiyan" : target.t === "new" ? "➕ Naya card" : "✏️ Card badlo (live dikhega)"}
+            </Text>
+            <Pressable onPress={onClose}><Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#E23744" }}>✕ Band</Text></Pressable>
+          </View>
+
+          {(target.t === "block" || target.t === "new") && (
+            <>
+              <TextInput value={title} onChangeText={setTitle} placeholder="Bada heading * e.g. 50% OFF Biryani" placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={tag} onChangeText={setTag} placeholder="Upar tag e.g. MEGHANA FEST" placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={sub} onChangeText={setSub} placeholder="Neeche line e.g. Code BAZAR50" placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={cta} onChangeText={setCta} placeholder="Button e.g. Order now" placeholderTextColor={colors.ink3} style={input} />
+              <TextInput value={image} onChangeText={setImage} placeholder="Photo link https://…" placeholderTextColor={colors.ink3} autoCapitalize="none" style={input} />
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>🎨 Rang</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {["rgba(10,10,10,.78)", "rgba(14,59,46,.85)", "rgba(60,20,60,.8)", "rgba(74,14,46,.92)", "rgba(158,42,43,.85)"].map((cc) => (
+                  <Pressable key={cc} onPress={() => setC1(cc)} style={{ height: 38, width: 38, borderRadius: 19, backgroundColor: cc, borderWidth: c1 === cc ? 3 : 1, borderColor: c1 === cc ? "#0C831F" : colors.line }} />
+                ))}
+              </View>
+              {/* live mini preview — type karte hi yahi dikhe */}
+              <View style={{ borderRadius: 14, overflow: "hidden", backgroundColor: c1, minHeight: 90, justifyContent: "center", padding: 14 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: "#F8CB46" }}>{(tag || "TAG").toUpperCase()}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>{title || "Heading yahi live dikhega…"}</Text>
+                {!!sub && <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{sub}</Text>}
+              </View>
+              <Pressable onPress={saveBlock} style={{ borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 14, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>💾 Save — turant home pe dikhega</Text>
+              </Pressable>
+              {target.t === "block" && (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable onPress={hideBlock} style={{ flex: 1, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 12, alignItems: "center" }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{target.block.active !== false ? "🚫 Chhupao" : "✅ Dikhao"}</Text>
+                  </Pressable>
+                  <Pressable onPress={deleteBlock} style={{ flex: 1, borderRadius: 12, backgroundColor: "rgba(226,55,68,.12)", paddingVertical: 12, alignItems: "center" }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>🗑️ Hatao</Text>
+                  </Pressable>
+                </View>
+              )}
+            </>
+          )}
+
+          {target.t === "texts" && (
+            <>
+              {[
+                ["searchPlaceholder", "🔍 Search me kya likha ho"],
+                ["greetingSub", "👋 Namaste ke neeche line"],
+                ["categoriesTitle", "🗂️ Category heading"],
+                ["festivalTitle", "🪔 Festival heading"],
+                ["festivalSub", "🪔 Festival neeche line"],
+                ["festivalCta", "🔘 Festival button"],
+              ].map(([k, label]) => (
+                <View key={k}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{label}</Text>
+                  <TextInput value={texts[k] ?? ""} onChangeText={(v) => setTexts((t) => ({ ...t, [k]: v }))} style={[input, { marginTop: 4 }]} />
+                </View>
+              ))}
+              <Pressable onPress={saveTexts} style={{ borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 14, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>💾 Save shabd</Text>
+              </Pressable>
+            </>
+          )}
+
+          {target.t === "strips" && (
+            <>
+              <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>Har offer alag line — `|` se alag karo. e.g.{"\n"}50% OFF up to ₹100 | Free delivery over ₹199</Text>
+              <TextInput value={strips} onChangeText={setStrips} multiline numberOfLines={4} style={[input, { minHeight: 90, textAlignVertical: "top" }]} />
+              <Pressable onPress={saveStrips} style={{ borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 14, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>💾 Save pattiyan</Text>
+              </Pressable>
+            </>
+          )}
+          <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3, textAlign: "center" }}>Save = turant isi screen pe. Sabko bhejne ke liye 🚀 Publish dabao.</Text>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 }

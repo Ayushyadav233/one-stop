@@ -172,17 +172,38 @@ export function apiDeleteReview(id: string) {
   return json<{ ok?: boolean }>(`/api/reviews/${encodeURIComponent(id)}`, { method: "DELETE" }, 10000);
 }
 
-/** Homepage CMS — public live blocks (fail-soft []). */
+/** Homepage CMS — public live blocks + editable texts + version (fail-soft defaults). */
 export type ApiHomeBlock = {
   id: string; kind: "banner" | "festival" | "ad" | "strip";
   tag?: string; title?: string; sub?: string; cta?: string; image?: string;
   c1?: string; c2?: string; linkKind?: string; linkValue?: string; sort?: number;
   active?: boolean; startsAt?: string | null; endsAt?: string | null;
 };
+export type ApiHomeConfig = Record<string, string>;
+export const HOME_CONFIG_DEFAULTS: ApiHomeConfig = {
+  searchPlaceholder: "Search “biryani”, “A2 milk”, “plumber”…",
+  greetingSub: "Sab kuch, ek app me",
+  liveBadge: "LIVE",
+  categoriesTitle: "Explore categories",
+  festivalTitle: "Festive picks for you",
+  festivalSub: "Sweets, gifts & more from nearby shops",
+  festivalCta: "Send gift",
+  stripsDefault: "50% OFF up to ₹100|Free delivery over ₹199|20% cashback|₹200 OFF services",
+  showFestival: "1",
+  showAds: "1",
+  showStrips: "1",
+  showCategories: "1",
+};
+export type ApiHomeVersion = { id: string; note?: string; createdBy?: string; createdAt?: string; blockCount?: number };
+export function apiGetHome() {
+  return json<{ blocks?: ApiHomeBlock[]; config?: ApiHomeConfig; version?: string | null }>("/api/home").then((j) => ({
+    blocks: Array.isArray(j?.blocks) ? j!.blocks! : [],
+    config: { ...HOME_CONFIG_DEFAULTS, ...(j?.config ?? {}) },
+    version: j?.version ?? null,
+  }));
+}
 export function apiGetHomeBlocks() {
-  return json<{ blocks?: ApiHomeBlock[] }>("/api/home").then((j) =>
-    Array.isArray(j?.blocks) ? j!.blocks! : []
-  );
+  return apiGetHome().then((h) => h.blocks);
 }
 
 /** Admin-only endpoints — role checked on backend (super_admin only). */
@@ -284,4 +305,30 @@ export function apiAdminPatchHomeBlock(id: string, patch: Partial<ApiHomeBlock>)
 }
 export function apiAdminDeleteHomeBlock(id: string) {
   return json<{ ok?: boolean }>(`/api/admin/home/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export function apiAdminGetHomeConfig() {
+  return json<{ ok?: boolean; config?: ApiHomeConfig }>(`/api/admin/home-config`).then((j) => ({
+    ...HOME_CONFIG_DEFAULTS,
+    ...(j?.config ?? {}),
+  }));
+}
+export function apiAdminPatchHomeConfig(patch: Partial<ApiHomeConfig>) {
+  return json<{ ok?: boolean; config?: ApiHomeConfig }>(`/api/admin/home-config`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+}
+export function apiAdminPublishHome(note?: string) {
+  return json<{ ok?: boolean; version?: ApiHomeVersion }>(`/api/admin/home/publish`, {
+    method: "POST", body: JSON.stringify({ note: note ?? "" }),
+  });
+}
+export function apiAdminHomeVersions() {
+  return json<{ versions?: (ApiHomeVersion & { snapshot?: unknown })[] }>(`/api/admin/home-versions`).then((j) =>
+    Array.isArray(j?.versions) ? j!.versions! : []
+  );
+}
+export function apiAdminRevertHome(versionId: string) {
+  return json<{ ok?: boolean; version?: ApiHomeVersion }>(`/api/admin/home/revert`, {
+    method: "POST", body: JSON.stringify({ versionId }),
+  });
 }

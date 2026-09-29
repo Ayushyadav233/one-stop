@@ -144,6 +144,23 @@ export const categoryRequests = pgTable("osb_category_requests", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Home screen text/sections — super_admin edits, app renders live.
+// Singleton rows keyed by `key` (e.g. searchPlaceholder, greetingSub, festivalTitle...).
+export const homeConfig = pgTable("osb_home_config", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Publish history — har Publish pe full snapshot (blocks + config), revert isi se.
+export const homeVersions = pgTable("osb_home_versions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  note: varchar("note", { length: 240 }).default(""),
+  snapshot: jsonb("snapshot").$type<{ blocks: Record<string, unknown>[]; config: Record<string, string> }>().default({ blocks: [], config: {} }),
+  createdBy: varchar("created_by", { length: 40 }).default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Homepage CMS — super_admin edits banners/ads/festival/strips, app renders live.
 export const homeBlocks = pgTable("osb_home_blocks", {
   id: uuid("id").defaultRandom().primaryKey(),

@@ -5,7 +5,7 @@ import { Vibration } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
-import { apiPatchOrder, apiGetHomeBlocks, type ApiHomeBlock } from "@/lib/api";
+import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock } from "@/lib/api";
 import { fetchRemoteCatalog, productKey } from "@/lib/catalog";
 
 export interface CartLine { productId: string; name: string; emoji: string; image?: string; price: number; qty: number; storeId: string; storeName: string; unit: string; tint: string; }
@@ -164,6 +164,9 @@ interface OSBState {
   homeBlocks: ApiHomeBlock[];
   homeBlocksAt: number;
   homeSyncing: boolean;
+  homeConfig: Record<string, string>;
+  homeVersion: string | null;
+  homeEditMode: boolean;
   syncHomeBlocks: () => void;
   seller: SellerSettings;
   sellerCoupons: SellerCoupon[];
@@ -271,6 +274,9 @@ export const useOSB = create<OSBState>()(
       homeBlocks: [],
       homeBlocksAt: 0,
       homeSyncing: false,
+      homeConfig: { ...HOME_CONFIG_DEFAULTS },
+      homeVersion: null,
+      homeEditMode: false,
       seller: {
         onboarded: false,
         storeOpen: false,
@@ -545,9 +551,11 @@ export const useOSB = create<OSBState>()(
         const st = get();
         if (st.homeSyncing) return;
         set({ homeSyncing: true });
-        apiGetHomeBlocks()
-          .then((blocks) => {
-            if (blocks.length > 0) set({ homeBlocks: blocks, homeBlocksAt: Date.now() });
+        apiGetHome()
+          .then((h) => {
+            // FIX: khali CMS bhi clear ho (pehle length>0 guard stale blocks rakhta tha).
+            // Fail-soft: network fail pe kuch mat badlo (offline fallback bana rahe).
+            if (h) set({ homeBlocks: h.blocks, homeConfig: h.config, homeVersion: h.version, homeBlocksAt: Date.now() });
           })
           .catch(() => {})
           .finally(() => set({ homeSyncing: false }));
@@ -763,7 +771,7 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
+     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
   )
 );
 
