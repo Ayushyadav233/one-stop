@@ -836,8 +836,23 @@ export function useMarketplace() {
 }
 
 
-export function blip(_freq = 660, _dur = 0.07, _type: string = "sine") {
-  // Web used a WebAudio oscillator tick; on native use a light haptic tick instead.
+/* Live ETAs — always derived from shopkeeper data, never static text.
+   Product's own prep time → its store's avg time → "" (caller hides badge). */
+export function fastestEta(stores: { etaMins?: number | null }[]): number | null {
+  const ms = stores
+    .map((s) => Number(s.etaMins))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return ms.length ? Math.min(...ms) : null;
+}
+export function productEtaText(p: { eta?: string | null }, store?: { etaMins?: number | null }): string {
+  const own = (p.eta || "").trim();
+  if (own) return own;
+  const m = Number(store?.etaMins);
+  if (Number.isFinite(m) && m > 0) return `${Math.round(m)} mins`;
+  return "";
+}
+
+export function blip(_freq = 660, _dur = 0.07, _type: string = "sine") {  // Web used a WebAudio oscillator tick; on native use a light haptic tick instead.
   try {
     Haptics.selectionAsync().catch(() => {});
   } catch { /* silent */ }

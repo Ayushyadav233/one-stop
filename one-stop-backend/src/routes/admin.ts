@@ -136,6 +136,7 @@ adminRoute.patch("/products/:id", auth, async (c: any) => {
   for (const k of ["name", "description", "price", "mrp", "image", "emoji", "category", "rating", "isVeg", "isBestseller", "stock", "unit", "hidden"]) {
     if (typeof b[k] !== "undefined") patch[k] = b[k];
   }
+  if (b.etaMins !== undefined && Number.isFinite(Number(b.etaMins))) patch.etaMins = Math.min(1440, Math.max(1, Math.round(Number(b.etaMins))));
   if (Object.keys(patch).length === 0) return c.json({ ok: false, error: "empty" }, 400);
   const rows = await db.update(products).set(patch).where(eq(products.id, id)).returning();
   if (!rows[0]) return c.json({ ok: false, error: "not found" }, 404);
@@ -146,7 +147,7 @@ adminRoute.post("/products", auth, async (c: any) => {
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const name = String(b.name ?? "").trim();
   if (!name) return c.json({ ok: false, error: "name required" }, 400);
-  const rows = await db.insert(products).values({ name, description: String(b.description ?? ""), price: Number(b.price ?? 0), mrp: b.mrp ? Number(b.mrp) : undefined, image: b.image ? String(b.image) : null, emoji: String(b.emoji ?? "🍔"), category: String(b.category ?? ""), rating: Number(b.rating ?? 4.4), isVeg: typeof b.isVeg === "boolean" ? b.isVeg : true, isBestseller: typeof b.isBestseller === "boolean" ? b.isBestseller : false, stock: Number(b.stock ?? 50), unit: String(b.unit ?? "1 pc") } as any).returning();
+  const rows = await db.insert(products).values({ name, description: String(b.description ?? ""), price: Number(b.price ?? 0), mrp: b.mrp ? Number(b.mrp) : undefined, image: b.image ? String(b.image) : null, emoji: String(b.emoji ?? "🍔"), category: String(b.category ?? ""), rating: Number(b.rating ?? 4.4), isVeg: typeof b.isVeg === "boolean" ? b.isVeg : true, isBestseller: typeof b.isBestseller === "boolean" ? b.isBestseller : false, stock: Number(b.stock ?? 50), unit: String(b.unit ?? "1 pc"), etaMins: Number.isFinite(Number(b.etaMins)) ? Math.min(1440, Math.max(1, Math.round(Number(b.etaMins)))) : undefined } as any).returning();
   return c.json({ ok: true, product: rows[0] });
 });
 adminRoute.delete("/products/:id", auth, async (c: any) => {

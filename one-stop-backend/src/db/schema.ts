@@ -39,6 +39,7 @@ export const products = pgTable("osb_products", {
   isBestseller: boolean("is_bestseller").default(false),
   stock: integer("stock").default(50),
   unit: varchar("unit", { length: 40 }).default("1 pc"),
+  etaMins: integer("eta_mins"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

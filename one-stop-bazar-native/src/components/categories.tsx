@@ -24,7 +24,7 @@ import {
   Store as StoreIcon,
 } from "lucide-react-native";
 import { type CategoryDef } from "@/lib/data";
-import { activeCategories, blip, useMarketplace, useOSB } from "@/lib/osb-store";
+import { activeCategories, blip, fastestEta, useMarketplace, useOSB } from "@/lib/osb-store";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, SectionHead } from "./ui";
 import { BlinkitCard, ZomatoCard } from "./customer";
@@ -39,14 +39,21 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
   const featured = list.filter((c) => c.featured);
   const { stores } = useMarketplace();
 
-  // Per-category store counts, computed once per stores/list change —
-  // calling stores.filter per card during render janks tab switch.
+  // Per-category store counts + fastest live ETA, computed once per stores/list
+  // change — calling stores.filter per card during render janks tab switch.
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of list) {
       let n = 0;
       for (const s of stores) if (c.kinds.includes(s.kind)) n++;
       m.set(c.k, n);
+    }
+    return m;
+  }, [list, stores]);
+  const etas = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const c of list) {
+      m.set(c.k, fastestEta(stores.filter((s) => c.kinds.includes(s.kind))));
     }
     return m;
   }, [list, stores]);
@@ -57,6 +64,10 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
   };
 
   const countFor = (c: CategoryDef) => counts.get(c.k) ?? 0;
+  const etaFor = (c: CategoryDef): string | null => {
+    const f = etas.get(c.k);
+    return f ? `from ${f} min` : null;
+  };
 
   const W = Dimensions.get("window").width;
   const featW = Math.round(W * 0.78);
@@ -126,7 +137,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                     </View>
                     <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 21, lineHeight: 22, color: "#fff" }}>{c.t}</Text>
                     <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.75)" }}>
-                      {countFor(c)} stores • {c.eta}
+                      {countFor(c)} stores{etaFor(c) ? ` • ${etaFor(c)}` : ""}
                     </Text>
                     <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6 }}>
                       <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#000" }}>Explore</Text>
@@ -184,7 +195,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                           <StoreIcon size={10} color={c.accent} />
                           <Text style={{ fontFamily: F.extra, fontSize: 10, color: c.accent }}>{n} stores</Text>
                         </View>
-                        <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>⚡ {c.eta}</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>{etaFor(c) ? `⚡ ${etaFor(c)}` : "Coming soon"}</Text>
                       </View>
                     </View>
                   </Pressable>
@@ -219,6 +230,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
   const { colors } = useTheme();
   const { stores: allStores, products: allProducts } = useMarketplace();
   const stores = useMemo(() => allStores.filter((s) => c.kinds.includes(s.kind)), [c, allStores]);
+  const liveEta = fastestEta(stores);
   const products = useMemo(() => {
     const ids = new Set(stores.map((s) => s.id));
     return allProducts.filter((p) => ids.has(p.storeId)).slice(0, 12);
@@ -247,7 +259,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
           </Pressable>
           <View style={{ position: "absolute", left: 16, right: 16, bottom: 12 }}>
             <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: c.accent, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: "#fff" }}>{c.eta} delivery</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: "#fff" }}>{liveEta ? `from ${liveEta} min delivery` : "Coming soon"}</Text>
             </View>
             <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 26, lineHeight: 28, color: "#fff" }}>{c.t}</Text>
             <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12, color: "rgba(255,255,255,.8)" }}>

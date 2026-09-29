@@ -58,13 +58,16 @@ export function ProviderCatalogSheet({ open, onClose }: { open: boolean; onClose
   const [reqDesc, setReqDesc] = useState("");
   const [reqEmoji, setReqEmoji] = useState("✨");
   const [price, setPrice] = useState("");
+  // Prep time (mins) — defaults to the shop's own avg delivery time.
+  const shopAvg = useOSB((s) => s.seller.avgTime) || 30;
+  const [prep, setPrep] = useState("");
 
   const suggestion = useMemo(() => {
     const q = name.toLowerCase();
     return KEYWORDS.find((k) => k.keys.some((w) => q.includes(w)));
   }, [name]);
 
-  const reset = () => { setStage("name"); setName(""); setChosen(null); setAttrs([]); setReqName(""); setPrice(""); };
+  const reset = () => { setStage("name"); setName(""); setChosen(null); setAttrs([]); setReqName(""); setPrice(""); setPrep(""); };
   const close = () => { onClose(); setTimeout(reset, 250); };
 
   const runAi = () => {
@@ -89,6 +92,7 @@ export function ProviderCatalogSheet({ open, onClose }: { open: boolean; onClose
 
   const publish = () => {
     ensureCatalog();
+    const prepMins = Math.min(1440, Math.max(1, +prep || shopAvg));
     addProduct({
       id: "cp-" + Math.random().toString(36).slice(2, 8),
       storeId: useOSB.getState().seller.storeId || "mine",
@@ -104,7 +108,7 @@ export function ProviderCatalogSheet({ open, onClose }: { open: boolean; onClose
       stock: 20,
       unit: "1 pc",
       tint: "#F1F0EA",
-      eta: "30 mins",
+      eta: `${prepMins} mins`,
     });
     setStage("published");
     blip(990, 0.2);
@@ -310,12 +314,8 @@ export function ProviderCatalogSheet({ open, onClose }: { open: boolean; onClose
                   <TextInput keyboardType="numeric" value={price} onChangeText={setPrice} placeholder="0" placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 12.5, color: colors.ink, paddingVertical: 2 }} />
                 </View>
                 <View style={{ flex: 1, borderRadius: 13, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>MRP ₹</Text>
-                  <TextInput keyboardType="numeric" placeholder="0" placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 12.5, color: colors.ink, paddingVertical: 2 }} />
-                </View>
-                <View style={{ flex: 1, borderRadius: 13, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>STOCK</Text>
-                  <TextInput keyboardType="numeric" placeholder="0" placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 12.5, color: colors.ink, paddingVertical: 2 }} />
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>READY IN (MIN)</Text>
+                  <TextInput keyboardType="numeric" value={prep} onChangeText={(t) => setPrep(t.replace(/\D/g, "").slice(0, 4))} placeholder={String(shopAvg)} placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 12.5, color: colors.ink, paddingVertical: 2 }} />
                 </View>
               </View>
               <View style={{ marginTop: 10, borderRadius: 13, borderWidth: 2, borderStyle: "dashed", borderColor: colors.line, padding: 16, alignItems: "center" }}>

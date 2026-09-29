@@ -38,6 +38,8 @@ async function doSeed() {
     if (rows[0]) idMap.set((s as unknown as { id: string }).id, rows[0].id);
   }
   for (const p of PRODUCTS) {
+    const etaStr = String((p as unknown as { eta?: unknown }).eta ?? "");
+    const etaM = /(\d+)/.exec(etaStr)?.[1];
     await db.insert(products).values({
       storeId: idMap.get((p as unknown as { storeId: string }).storeId) as never,
       name: p.name,
@@ -52,6 +54,7 @@ async function doSeed() {
       isBestseller: !!(p as unknown as { isBestseller?: boolean }).isBestseller,
       stock: p.stock,
       unit: p.unit,
+      etaMins: etaM ? Number(etaM) : undefined,
     });
   }
   for (const cp of COUPONS) {

@@ -429,6 +429,12 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
   const [emoji, setEmoji] = useState(p?.emoji ?? primaryDef.emoji ?? "✨");
   const [veg, setVeg] = useState(p?.isVeg ?? initialCfg.showVeg);
   const [best, setBest] = useState(p?.isBestseller ?? false);
+  // Prep time (mins) — customer sees this as the product ETA. Defaults to shop avg.
+  const initialEta = (() => {
+    const m = /(\d+)/.exec(String(p?.eta ?? ""));
+    return m ? m[1] : String(seller.avgTime || 30);
+  })();
+  const [etaMins, setEtaMins] = useState(initialEta);
   const off = mrp && price && +mrp > +price ? Math.round(((+mrp - +price) / +mrp) * 100) : 0;
   const activeDef = CATEGORIES.find((c) => c.t === cat || c.subs.includes(cat)) ?? primaryDef;
 
@@ -447,10 +453,11 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
     if (!name.trim() || !price) return;
     const shots = gallery.slice(0, MAX_PHOTOS);
     const cover = shots[0] ?? "";
+    const prepMins = Math.min(1440, Math.max(1, +etaMins || seller.avgTime || 30));
     if (p)
-      updateProduct(p.id, { name: name.trim(), description: desc, price: +price, mrp: mrp ? +mrp : undefined, stock: Math.max(0, +stock || 0), unit, category: cat, image: cover, images: shots, emoji, isVeg: veg, isBestseller: best });
+      updateProduct(p.id, { name: name.trim(), description: desc, price: +price, mrp: mrp ? +mrp : undefined, stock: Math.max(0, +stock || 0), unit, category: cat, image: cover, images: shots, emoji, isVeg: veg, isBestseller: best, eta: `${prepMins} mins` });
     else
-      addProduct({ id: "cp-" + Math.random().toString(36).slice(2, 8), storeId: useOSB.getState().seller.storeId || "mine", name: name.trim(), description: desc || "Fresh from our store.", price: +price, mrp: mrp ? +mrp : undefined, emoji, image: cover, images: shots, category: cat, rating: 4.5, isVeg: veg, isBestseller: best, stock: Math.max(0, +stock || 0), unit: unit || "1 pc", tint: "#FFE7C2", eta: "30 mins" });
+      addProduct({ id: "cp-" + Math.random().toString(36).slice(2, 8), storeId: useOSB.getState().seller.storeId || "mine", name: name.trim(), description: desc || "Fresh from our store.", price: +price, mrp: mrp ? +mrp : undefined, emoji, image: cover, images: shots, category: cat, rating: 4.5, isVeg: veg, isBestseller: best, stock: Math.max(0, +stock || 0), unit: unit || "1 pc", tint: "#FFE7C2", eta: `${prepMins} mins` });
     blip(920, 0.15);
     onClose();
   };
@@ -532,6 +539,9 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
                 ))}
                 <TextInput value={unit} onChangeText={setUnit} placeholder="Custom" placeholderTextColor={colors.ink3} style={{ width: 80, borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 12, paddingVertical: 6, fontFamily: F.bold, fontSize: 11.5, color: colors.ink }} />
               </ScrollView>
+            </Field>
+            <Field label="Ready in (mins) — customer sees this as delivery time">
+              <TextInput keyboardType="numeric" value={etaMins} onChangeText={(t) => setEtaMins(t.replace(/\D/g, "").slice(0, 4))} placeholder={String(seller.avgTime || 30)} placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
             </Field>
             <View>
               <View style={{ marginBottom: 6, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -1519,6 +1529,20 @@ export function SellerOnboarding() {
                     <TextInput keyboardType="numeric" value={String(seller.freeAbove)} onChangeText={(t) => setSeller({ freeAbove: +t.replace(/\D/g, "") || 0 })} style={{ fontFamily: F.bold, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
                   </Field>
                 </View>
+              </View>
+              <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8, width: "100%", borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10 }}>
+                <Text style={{ fontSize: 18 }}>⏱️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>Avg delivery time</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Customers see this on your store & products</Text>
+                </View>
+                <Pressable onPress={() => setSeller({ avgTime: Math.max(5, seller.avgTime - 5) })} style={{ height: 34, width: 34, borderRadius: 17, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 16, color: colors.ink }}>−</Text>
+                </Pressable>
+                <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: "center" }}>{seller.avgTime} min</Text>
+                <Pressable onPress={() => setSeller({ avgTime: Math.min(180, seller.avgTime + 5) })} style={{ height: 34, width: 34, borderRadius: 17, backgroundColor: "#0C831F", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>+</Text>
+                </Pressable>
               </View>
             </View>
           </View>

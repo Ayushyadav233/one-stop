@@ -124,6 +124,7 @@ interface BackendProduct {
   unit?: unknown;
   tint?: unknown;
   hidden?: unknown;
+  etaMins?: unknown;
 }
 
 function toStore(r: BackendStore): Store | null {
@@ -164,6 +165,7 @@ function toProduct(r: BackendProduct, storeSlug: string): Product | null {
   if (r.hidden === true) return null;
   const images = strArr(r.images);
   const image = str(r.image) || images[0] || "";
+  const etaM = num(r.etaMins, 0);
   return {
     id,
     storeId: storeSlug,
@@ -181,6 +183,7 @@ function toProduct(r: BackendProduct, storeSlug: string): Product | null {
     stock: num(r.stock, 99),
     unit: str(r.unit, "1 pc"),
     tint: str(r.tint, "#FCE4EC"),
+    ...(etaM > 0 ? { eta: `${Math.round(etaM)} mins` } : {}),
   };
 }
 

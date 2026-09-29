@@ -38,7 +38,7 @@ import {
   Wallet,
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
-import { activeCategories, blip, useMarketplace, useOSB } from "@/lib/osb-store";
+import { activeCategories, blip, fastestEta, productEtaText, useMarketplace, useOSB } from "@/lib/osb-store";
 import { apiGetCoupons, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
@@ -687,7 +687,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         img: activeCat.img,
         tag: cats[i % cats.length].toUpperCase(),
         title: `${cats[i % cats.length]}`,
-        sub: `⚡ ${activeCat.eta} • ${activeCat.sub}`,
+        sub: (() => { const f = fastestEta(filtered); return f ? `⚡ from ${f} min • ${activeCat.sub}` : activeCat.sub; })(),
         cta: "Explore",
         colors: BANNER_TINTS[i % BANNER_TINTS.length],
       });
@@ -980,11 +980,13 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: activeCat.accent }}>{activeCat.t} • {filtered.length} stores</Text>
-                <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{activeCat.sub} • avg {activeCat.eta}</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{activeCat.sub}{(() => { const f = fastestEta(filtered); return f ? ` • fastest ${f} min` : ""; })()}</Text>
               </View>
-              <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat.accent }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#fff" }}>⚡ {activeCat.eta}</Text>
-              </View>
+              {(() => { const f = fastestEta(filtered); return f ? (
+                <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat.accent }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#fff" }}>⚡ {f} min</Text>
+                </View>
+              ) : null; })()}
             </View>
           </View>
         )}
@@ -1102,7 +1104,9 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               sub={activeCat ? `${quickPicks.length} items • delivered by local stores` : "From FreshKart • Milk & More • MediCare"}
               action={
                 <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat?.accent ?? "#0C831F" }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>{activeCat?.eta ?? "12 MIN"}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>
+                    {(() => { const f = fastestEta(activeCat ? filtered : stores); return f ? `${f} MIN` : "LIVE"; })()}
+                  </Text>
                 </View>
               }
             />
@@ -1858,6 +1862,49 @@ function FeedPromoCard({ b, editing, onTap, onEdit }: { b: ApiHomeBlock; editing
   );
 }
 
+/* Rails: product-first mixed list — no store cards, multi-shop variety.
+   Day-seeded shuffle so it feels fresh daily but stable within a day. */
+export function shuffledByDay<T>(list: T[], salt: string): T[] {
+  let h = 0;
+  const seedStr = `${new Date().toDateString()}|${salt}`;
+  for (let i = 0; i < seedStr.length; i++) h = (h * 31 + seedStr.charCodeAt(i)) >>> 0;
+  const rnd = () => {
+    h |= 0;
+    h = (h + 0x6d2b79f5) | 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+/* Round-robin across shops so one shop can't dominate the rail. */
+export function mixedShops<T extends { storeId: string; stock?: number | null }>(list: T[]): T[] {
+  const byShop = new Map<string, T[]>();
+  for (const p of inStockFirst(list)) {
+    if (!byShop.has(p.storeId)) byShop.set(p.storeId, []);
+    byShop.get(p.storeId)!.push(p);
+  }
+  const queues = shuffledByDay([...byShop.values()], "shops");
+  const out: T[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const q of queues) {
+      const p = q.shift();
+      if (p) {
+        out.push(p);
+        added = true;
+      }
+    }
+  }
+  return out;
+}
+
 /* ── CategoryRails ── */
 export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEditAd, onAddFeed }: {
   cats: CategoryDef[]; onStore: (id: string) => void;
@@ -1872,8 +1919,13 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
       {cats.map((c, ci) => {
         const stores = allStores.filter((s) => c.kinds.includes(s.kind)).slice(0, 6);
         const ids = new Set(stores.map((s) => s.id));
-        const products = inStockFirst(allProducts.filter((p) => ids.has(p.storeId))).slice(0, 8);
+        const products = allProducts.filter((p) => ids.has(p.storeId));
+        // Product-first rail: multi-shop mix, fresh order daily, in-stock first.
+        const mixed = shuffledByDay(mixedShops(products), c.k).slice(0, 10);
         const feed = feedAds?.[ci];
+        // Fully empty rails never render (no blank sections); edit mode keeps
+        // the slot so feed ads can still be added anywhere.
+        if (mixed.length === 0 && !feed && !editing) return null;
         return (
           <View key={c.k}>
           <View style={{ paddingTop: 20 }}>
@@ -1891,7 +1943,9 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
                       </View>
                     )}
                   </View>
-                  <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{stores.length} stores • ⚡ {c.eta}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
+                    {stores.length} store{stores.length === 1 ? "" : "s"}{(() => { const f = fastestEta(stores); return f ? ` • ⚡ from ${f} min` : ""; })()}
+                  </Text>
                 </View>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
@@ -1900,43 +1954,9 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
               </View>
             </Pressable>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 10, gap: 10, paddingHorizontal: 16 }}>
-              {stores.map((s) => (
-                <Pressable
-                  key={s.id}
-                  onPress={() => onStore(s.id)}
-                  style={{ width: 152, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}
-                >
-                  <View style={{ position: "relative", height: 92 }}>
-                    <Img src={s.image} style={{ width: "100%", height: "100%" }} />
-                    <View style={{ position: "absolute", left: 6, bottom: 6, borderRadius: 6, backgroundColor: "rgba(0,0,0,.68)", paddingHorizontal: 6, paddingVertical: 2 }}>
-                      <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>⚡ {s.etaMins} MINS</Text>
-                    </View>
-                    {s.offers[0] && (
-                      <View style={{ position: "absolute", left: 6, top: 6, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: c.accent }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 8.5, color: "#fff" }}>OFFER</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ padding: 10 }}>
-                    <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{s.name}</Text>
-                    <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 10, color: colors.ink3 }}>{s.tagline}</Text>
-                    <View style={{ marginTop: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Rating v={s.rating} />
-                      <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>{s.distanceKm} km</Text>
-                    </View>
-                  </View>
-                </Pressable>
+              {mixed.map((p, i) => (
+                <BlinkitCard key={p.id} pid={p.id} index={i} storeLabel />
               ))}
-              {products.slice(0, 4).map((p) => (
-                <BlinkitCard key={p.id} pid={p.id} index={0} />
-              ))}
-              {stores.length === 0 && (
-                <View style={{ width: 170, borderRadius: 16, borderWidth: 2, borderStyle: "dashed", borderColor: colors.line, padding: 16, justifyContent: "center" }}>
-                  <Text style={{ fontSize: 26 }}>{c.emoji}</Text>
-                  <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{c.t} soon</Text>
-                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Local stores being onboarded</Text>
-                </View>
-              )}
               <Pressable
                 onPress={() => set({ category: c.k })}
                 style={{ width: 86, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center", paddingVertical: 16 }}
@@ -1975,7 +1995,7 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
 }
 
 /* ── BlinkitCard ── */
-export function BlinkitCard({ pid, index }: { pid: string; index: number }) {
+export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: number; storeLabel?: boolean }) {
   const { products, stores } = useMarketplace();
   const p = products.find((x) => x.id === pid);
   const cart = useOSB((s) => s.cart);
@@ -1986,6 +2006,7 @@ export function BlinkitCard({ pid, index }: { pid: string; index: number }) {
   const out = isOutOfStock(p);
   const qty = cart.find((c) => c.productId === pid)?.qty ?? 0;
   const store = stores.find((s) => s.id === p.storeId);
+  const etaText = productEtaText(p, store);
   const off = p.mrp ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0;
   const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: store?.name ?? "", unit: p.unit, tint: p.tint } as never;
   return (
@@ -2009,12 +2030,17 @@ export function BlinkitCard({ pid, index }: { pid: string; index: number }) {
         )}
       </View>
       <View style={{ padding: 8 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Clock size={10} color={colors.ink3} />
-          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{p.eta ?? "12 MINS"}</Text>
-        </View>
+        {!!etaText && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Clock size={10} color={colors.ink3} />
+            <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{etaText}</Text>
+          </View>
+        )}
         <Text numberOfLines={2} style={{ marginTop: 2, minHeight: 30, fontFamily: F.bold, fontSize: 12, lineHeight: 15, color: colors.ink }}>{p.name}</Text>
         <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>{p.unit}</Text>
+        {storeLabel && !!store && (
+          <Text numberOfLines={1} style={{ marginTop: 1, fontFamily: F.semi, fontSize: 9.5, color: colors.ink3 }}>🏪 {store.name}</Text>
+        )}
         <View style={{ marginTop: 6, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 4 }}>
           <View>
             <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>₹{p.price}</Text>

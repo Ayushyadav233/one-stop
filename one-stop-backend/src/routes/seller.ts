@@ -82,6 +82,7 @@ sellerRoute.post("/products", auth, async (c) => {
         isBestseller: !!b.isBestseller,
         stock: Number.isFinite(Number(b.stock)) ? Math.round(Number(b.stock)) : 50,
         unit: typeof b.unit === "string" ? String(b.unit).slice(0, 40) : "1 pc",
+        etaMins: Number.isFinite(Number(b.etaMins)) ? Math.min(1440, Math.max(1, Math.round(Number(b.etaMins)))) : null,
       })
       .returning();
     return c.json({ ok: true, product: rows[0] });
@@ -105,6 +106,7 @@ sellerRoute.patch("/products/:id", auth, async (c) => {
   if (typeof b.isBestseller === "boolean") patch.isBestseller = b.isBestseller;
   if (b.stock !== undefined && Number.isFinite(Number(b.stock))) patch.stock = Math.round(Number(b.stock));
   if (typeof b.unit === "string") patch.unit = String(b.unit).slice(0, 40);
+  if (b.etaMins !== undefined && Number.isFinite(Number(b.etaMins))) patch.etaMins = Math.min(1440, Math.max(1, Math.round(Number(b.etaMins))));
   if (Object.keys(patch).length === 0) return c.json({ ok: false, error: "empty" }, 400);
   const rows = await db.update(products).set(patch).where(eq(products.id, id)).returning();
   if (!rows[0]) return c.json({ ok: false, error: "not found" }, 404);
