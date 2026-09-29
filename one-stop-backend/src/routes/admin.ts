@@ -236,6 +236,8 @@ adminRoute.patch("/categories/:id", auth, async (c: any) => {
 
 const HOME_KINDS = ["banner", "festival", "ad", "strip"];
 const HOME_LINKS = ["none", "store", "category", "search"];
+const HOME_SLOTS = ["top", "banners", "strips", "mid", "festival", "bottom"];
+const HOME_THEMES = ["none", "diwali", "christmas", "holi", "newyear", "monsoon"];
 
 function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
@@ -249,6 +251,8 @@ function homePatchFrom(b: Record<string, unknown>): Record<string, unknown> {
   }
   if (typeof b.linkKind === "string" && HOME_LINKS.includes(b.linkKind)) patch.linkKind = b.linkKind;
   if (typeof b.linkValue === "string") patch.linkValue = String(b.linkValue).slice(0, 120);
+  if (typeof b.slot === "string" && HOME_SLOTS.includes(b.slot)) patch.slot = b.slot;
+  if (typeof b.theme === "string" && HOME_THEMES.includes(b.theme)) patch.theme = b.theme;
   if (typeof b.active === "boolean") patch.active = b.active;
   if (Number.isFinite(Number(b.sort))) patch.sort = Math.round(Number(b.sort));
   for (const k of ["startsAt", "endsAt"] as const) {

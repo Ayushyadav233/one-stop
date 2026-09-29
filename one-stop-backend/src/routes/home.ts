@@ -31,6 +31,8 @@ export async function ensureHomeTables() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "osb_home_config" ("key" varchar(64) PRIMARY KEY, "value" text, "updated_at" timestamp DEFAULT now());
       CREATE TABLE IF NOT EXISTS "osb_home_versions" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "note" varchar(240) DEFAULT '', "snapshot" jsonb DEFAULT '{"blocks":[],"config":{}}', "created_by" varchar(40) DEFAULT '', "created_at" timestamp DEFAULT now());
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "slot" varchar(16) DEFAULT 'banners';
+      ALTER TABLE "osb_home_blocks" ADD COLUMN IF NOT EXISTS "theme" varchar(16) DEFAULT 'none';
     `);
   } catch { /* fail-soft: purana DB bhi chalega */ }
 }
@@ -57,6 +59,8 @@ function pub(r: typeof homeBlocks.$inferSelect) {
     c2: r.c2 ?? "rgba(10,10,10,.15)",
     linkKind: r.linkKind ?? "none",
     linkValue: r.linkValue ?? "",
+    slot: (r as { slot?: string }).slot ?? "banners",
+    theme: (r as { theme?: string }).theme ?? "none",
     sort: r.sort ?? 0,
   };
 }

@@ -174,6 +174,10 @@ export const homeBlocks = pgTable("osb_home_blocks", {
   c2: varchar("c2", { length: 32 }).default("rgba(10,10,10,.15)"),
   linkKind: varchar("link_kind", { length: 16 }).default("none"),
   linkValue: varchar("link_value", { length: 120 }).default(""),
+  // Placement: where on home this card renders (top / banners / strips / mid / festival / bottom)
+  slot: varchar("slot", { length: 16 }).default("banners"),
+  // Festival theme: none | diwali | christmas | holi | newyear | monsoon
+  theme: varchar("theme", { length: 16 }).default("none"),
   active: boolean("active").default(true),
   sort: integer("sort").default(0),
   startsAt: timestamp("starts_at"),
