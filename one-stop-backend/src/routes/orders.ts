@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { orders } from "../db/schema.js";
+import { orders, users } from "../db/schema.js";
 import { desc, eq } from "drizzle-orm";
 import { notifyUserPhones } from "../lib/push.js";
-import { logError, logInfo, logOk } from "../lib/logger.js";
+import { checkCoupon, consumeCoupon } from "../lib/coupons.js";
+import { logError, logInfo, logOk, logWarn } from "../lib/logger.js";
 
 export const ordersRoute = new Hono();
 
@@ -25,21 +26,60 @@ ordersRoute.get("/", async (c) => {
   }
 });
 
-// POST /api/orders — same contract as Next route
+// POST /api/orders — coupon ho to server verify (client discount blind accept NAHI).
+// couponCode bina login ke kabhi nahi lagega (fail-closed: 400).
 ordersRoute.post("/", async (c) => {
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const code = String(b.code ?? "#OSB-" + Math.floor(1000 + Math.random() * 9000)).slice(0, 24);
+  const subtotal = Math.max(0, Math.round(Number(b.subtotal ?? 0)));
+  const deliveryFee = Math.max(0, Math.round(Number(b.deliveryFee ?? 0)));
+  let discount = Math.max(0, Math.round(Number(b.discount ?? 0)));
+  const couponCode = String(b.couponCode ?? "").trim().toUpperCase().slice(0, 32);
+  // extraDiscount = dukandaar ke apne offers (storewide/offline seller coupon).
+  // Server verify nahi kar sakta → 30% cap (bade offers backend seller-coupon se aao).
+  const extraClaimed = Math.max(0, Math.round(Number(b.extraDiscount ?? 0)));
+  const walletUsed = Math.max(0, Math.round(Number(b.walletUsed ?? 0)));
+  const storeKey = String(b.storeId ?? b.storeKey ?? "").slice(0, 40);
+  if (couponCode) {
+    // Identity: Bearer token se user (app json() auto-attach karta hai).
+    const header = c.req.header("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    let uid = "";
+    let phone = String(b.customerPhone ?? "");
+    if (token) {
+      try {
+        const u = await db.select().from(users).where(eq(users.token, token)).limit(1);
+        if (u[0]) { uid = u[0].id; phone = u[0].phone; }
+      } catch { /* db down — neeche reject */ }
+    }
+    if (!uid) {
+      logWarn(`[order] coupon ${couponCode} without login — rejected`);
+      return c.json({ ok: false, error: "coupon ke liye login chahiye" }, 401);
+    }
+    const chk = await checkCoupon(couponCode, subtotal, { id: uid, phone }, { storeKey });
+    if (!chk.ok) {
+      logWarn(`[order] coupon ${couponCode} invalid`, chk.error);
+      return c.json({ ok: false, error: chk.error }, 400);
+    }
+    discount = Math.min(chk.discount, subtotal);
+  }
+  // Wallet server-ledger se verify nahi (redeem endpoint pehle hi ghata chuka) —
+  // bas bill se zyada na ho.
+  const walletApplied = Math.min(walletUsed, Math.max(0, subtotal + deliveryFee - discount));
+  const total = Math.max(0, subtotal + deliveryFee - discount - walletApplied);
   const payload = {
     code,
-    storeKey: String(b.storeId ?? b.storeKey ?? "").slice(0, 40),
+    storeKey,
     storeName: String(b.storeName ?? "One Stop Bazar").slice(0, 160),
     customerName: String(b.customerName ?? "Aarav Mehta").slice(0, 120),
     customerPhone: String(b.customerPhone ?? "").slice(0, 40),
     items: (Array.isArray(b.items) ? (b.items as unknown[]).slice(0, 30) : []) as never,
-    subtotal: Number(b.subtotal ?? 0),
-    deliveryFee: Number(b.deliveryFee ?? 0),
-    discount: Number(b.discount ?? 0),
-    total: Number(b.total ?? 0),
+    subtotal,
+    deliveryFee,
+    discount,
+    total,
+    couponCode: couponCode || null,
+    walletUsed: walletApplied,
     status: String(b.status ?? "new").slice(0, 32),
     payment: String(b.payment ?? "UPI").slice(0, 32),
     address: String(b.address ?? "HSR Layout").slice(0, 320),
@@ -56,7 +96,21 @@ ordersRoute.post("/", async (c) => {
       .values(payload)
       .returning({ id: orders.id, code: orders.code, status: orders.status });
     const itemCount = Array.isArray(b.items) ? b.items.length : 0;
-    logOk(`[order] new ${rows[0]?.code ?? code}`, `₹${payload.total} · ${itemCount} items · ${payload.storeName}`);
+    logOk(`[order] new ${rows[0]?.code ?? code}`, `₹${payload.total} · ${itemCount} items · ${payload.storeName}${couponCode ? ` · coupon ${couponCode} −₹${discount}` : ""}`);
+    // Quota sirf successful order pe jalta hai.
+    if (couponCode && discount > 0) {
+      const header = c.req.header("authorization") ?? "";
+      const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+      if (token) {
+        try {
+          const u = await db.select().from(users).where(eq(users.token, token)).limit(1);
+          if (u[0]) {
+            const chk = await checkCoupon(couponCode, subtotal, { id: u[0].id, phone: u[0].phone }, { storeKey });
+            if (chk.ok) await consumeCoupon(chk.coupon, u[0].id, rows[0]?.code ?? code, discount);
+          }
+        } catch { /* best-effort */ }
+      }
+    }
     return c.json({ id: rows[0]?.id, code: rows[0]?.code ?? code, status: rows[0]?.status ?? "new" });
   } catch {
     return c.json({ id: "local-" + Date.now(), code, status: payload.status, offline: true });

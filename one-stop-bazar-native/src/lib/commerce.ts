@@ -1,5 +1,5 @@
 import { Linking } from "react-native";
-import { COUPONS, STORES } from "@/lib/data";
+import { STORES } from "@/lib/data";
 import type { CartLine, LiveOrder, OrderStatus, SellerCoupon, SellerSettings } from "@/lib/osb-store";
 
 export const CUSTOMER = { name: "Aarav Mehta", phone: "+91 98450 12345" };
@@ -115,6 +115,15 @@ export function storeRules(storeId: string, seller: SellerSettings, storewideOff
   };
 }
 
+export interface CouponProof { code: string; discount: number; fundedBy?: string | null; storeKey?: string | null; at: number }
+/** Proof 5 min fresh + same code + seller-scope match — warna discount ZERO (fail-closed). */
+export function proofDiscount(proof: CouponProof | null, couponCode: string | null, storeId: string, subtotal: number): number {
+  if (!proof || !couponCode || proof.code !== couponCode) return 0;
+  if (Date.now() - proof.at > 5 * 60 * 1000) return 0;
+  if (proof.fundedBy === "seller" && proof.storeKey && proof.storeKey !== storeId) return 0;
+  return Math.min(Math.max(0, Math.round(proof.discount)), subtotal);
+}
+
 export function quoteStore(
   storeId: string,
   items: CartLine[],
@@ -122,12 +131,13 @@ export function quoteStore(
   storewideOff: number,
   couponCode: string | null,
   sellerCoupons: SellerCoupon[],
+  proof?: CouponProof | null,
 ): StoreQuote {
   const r = storeRules(storeId, seller, storewideOff);
   const subtotal = items.reduce((a, i) => a + i.qty * i.price, 0);
   let discount = 0;
-  const plat = COUPONS.find((c) => c.code === couponCode);
-  if (plat && subtotal >= plat.minOrder) discount += Math.min(Math.round((subtotal * plat.offPct) / 100), plat.maxOff);
+  // Platform/seller coupon: SIRF server proof pe (offline/static list se discount nahi).
+  discount += proofDiscount(proof ?? null, couponCode, storeId, subtotal);
   if (isMyStore(storeId, seller)) {
     if (r.storewideOff > 0) discount += Math.round((subtotal * r.storewideOff) / 100);
     const sc = sellerCoupons.find((c) => c.active && c.code === couponCode);
@@ -164,6 +174,7 @@ export function quoteCart(
   storewideOff: number,
   couponCode: string | null,
   sellerCoupons: SellerCoupon[],
+  proof?: CouponProof | null,
 ): CartQuote {
   const map = new Map<string, CartLine[]>();
   for (const l of cart) {
@@ -171,7 +182,7 @@ export function quoteCart(
     map.set(k, [...(map.get(k) ?? []), l]);
   }
   const groups = [...map.entries()].map(([storeId, items]) => {
-    const quote = quoteStore(storeId, items, seller, storewideOff, couponCode, sellerCoupons);
+    const quote = quoteStore(storeId, items, seller, storewideOff, couponCode, sellerCoupons, proof);
     return { storeId, storeName: quote.storeName, items, quote };
   });
   const subtotal = groups.reduce((a, g) => a + g.quote.subtotal, 0);

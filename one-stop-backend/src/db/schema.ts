@@ -53,6 +53,33 @@ export const coupons = pgTable("osb_coupons", {
   minOrder: integer("min_order").default(149),
   kind: varchar("kind", { length: 32 }).default("all"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Guardrails: kaun de raha + kab tak + kitna (loss-cap).
+  // fundedBy: platform (teri jeb) | seller (dukandaar ke hisse se)
+  fundedBy: varchar("funded_by", { length: 16 }).default("platform"),
+  // seller coupon ho to uski store key (sirf usi store pe lagega)
+  storeKey: varchar("store_key", { length: 40 }),
+  active: boolean("active").default(true),
+  startsAt: timestamp("starts_at"),
+  expiresAt: timestamp("expires_at"),
+  maxUsesTotal: integer("max_uses_total"),
+  usesTotal: integer("uses_total").default(0),
+  maxUsesPerUser: integer("max_uses_per_user").default(1),
+  firstOrderOnly: boolean("first_order_only").default(false),
+  maxBudget: integer("max_budget"),
+  budgetUsed: integer("budget_used").default(0),
+});
+
+// Coupon redemptions ledger — har successful order pe 1 row (audit + limit source).
+export const couponUses = pgTable("osb_coupon_uses", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  couponId: uuid("coupon_id").references(() => coupons.id, { onDelete: "set null" }),
+  code: varchar("code", { length: 32 }).notNull(),
+  orderCode: varchar("order_code", { length: 24 }),
+  discount: integer("discount").default(0),
+  fundedBy: varchar("funded_by", { length: 16 }).default("platform"),
+  storeKey: varchar("store_key", { length: 40 }),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const orders = pgTable("osb_orders", {
@@ -68,6 +95,8 @@ export const orders = pgTable("osb_orders", {
   deliveryFee: integer("delivery_fee").default(0),
   discount: integer("discount").default(0),
   total: integer("total").default(0),
+  couponCode: varchar("coupon_code", { length: 32 }),
+  walletUsed: integer("wallet_used").default(0),
   status: varchar("status", { length: 32 }).default("new"),
   payment: varchar("payment", { length: 32 }).default("UPI"),
   address: varchar("address", { length: 320 }).default("HSR Layout, Bengaluru"),

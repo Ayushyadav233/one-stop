@@ -167,22 +167,48 @@ export function apiApplyReferral(code: string) {
     10000
   );
 }
-/** Coupons — public list + validate (fail-soft [] / null). */
+/** Coupons — guardrailed (auth validate, limits server-side). Fail-closed: no net = no discount. */
 export type ApiCoupon = {
   id?: string; code: string; title: string; detail?: string | null;
   offPct?: number | null; maxOff?: number | null; minOrder?: number | null; kind?: string | null;
+  fundedBy?: string | null; storeKey?: string | null; active?: boolean | null;
+  startsAt?: string | null; expiresAt?: string | null;
+  maxUsesPerUser?: number | null; firstOrderOnly?: boolean | null;
 };
-export function apiGetCoupons() {
-  return json<{ coupons?: ApiCoupon[] }>("/api/coupons").then((j) =>
+export function apiGetCoupons(storeKey?: string) {
+  const q = storeKey ? `?storeKey=${encodeURIComponent(storeKey)}` : "";
+  return json<{ coupons?: ApiCoupon[] }>(`/api/coupons${q}`).then((j) =>
     Array.isArray(j?.coupons) ? j!.coupons! : []
   );
 }
-export function apiValidateCoupon(code: string, subtotal: number) {
+export function apiValidateCoupon(code: string, subtotal: number, storeKey?: string) {
   return json<{ ok?: boolean; coupon?: ApiCoupon; discount?: number; error?: string }>(
     "/api/coupons/validate",
-    { method: "POST", body: JSON.stringify({ code, subtotal }) },
+    { method: "POST", body: JSON.stringify({ code, subtotal, storeKey }) },
     10000
   );
+}
+/** Seller apne store ka offer (apni jeb se) — list/create/toggle/delete. */
+export function apiSellerCoupons(storeKey?: string) {
+  const q = storeKey ? `?storeKey=${encodeURIComponent(storeKey)}` : "";
+  return json<{ coupons?: ApiCoupon[] }>(`/api/seller/coupons${q}`).then((j) =>
+    Array.isArray(j?.coupons) ? j!.coupons! : []
+  );
+}
+export function apiSellerPostCoupon(p: { storeKey: string; code: string; title: string; detail?: string; offPct: number; maxOff: number; minOrder: number }) {
+  return json<{ ok?: boolean; coupon?: ApiCoupon; error?: string }>(
+    "/api/seller/coupons",
+    { method: "POST", body: JSON.stringify(p) },
+    10000
+  );
+}
+export function apiSellerPatchCoupon(id: string, patch: Record<string, unknown>) {
+  return json<{ ok?: boolean; coupon?: ApiCoupon }>(`/api/seller/coupons/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  }, 10000);
+}
+export function apiSellerDeleteCoupon(id: string) {
+  return json<{ ok?: boolean }>(`/api/seller/coupons/${encodeURIComponent(id)}`, { method: "DELETE" }, 10000);
 }
 
 /** Reviews — mine (auth) + post + delete own (fail-soft). */

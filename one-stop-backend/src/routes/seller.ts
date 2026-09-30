@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { products, sellerStores } from "../db/schema.js";
+import { coupons, products, sellerStores } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { auth, getUser } from "../middleware/auth.js";
+import { createSellerCoupon } from "../lib/coupons.js";
 
 export const sellerRoute = new Hono();
 
@@ -117,5 +118,79 @@ sellerRoute.delete("/products/:id", auth, async (c) => {
   const id = c.req.param("id") ?? "";
   const { eq: eq2 } = await import("drizzle-orm");
   await db.delete(products).where(eq2(products.id, id));
+  return c.json({ ok: true, id });
+});
+
+// ---- Seller coupons (dukandaar apni jeb se offer — platform ka kharcha zero) ----
+// Apne store ke liye coupon banao. Discount uske payout me se (order pe coupon_code se audit).
+sellerRoute.get("/coupons", auth, async (c) => {
+  const u = getUser(c);
+  const storeKey = (c.req.query("storeKey") ?? "").slice(0, 40);
+  try {
+    const mine = await db.select().from(sellerStores).where(eq(sellerStores.ownerId, u.id)).limit(20);
+    const keys = new Set(mine.map((s) => s.id));
+    const rows = await db.select().from(coupons).where(eq(coupons.fundedBy, "seller")).limit(100);
+    const list = rows.filter((r) => {
+      if (storeKey) return r.storeKey === storeKey;
+      return !r.storeKey || keys.has(r.storeKey) || r.storeKey.startsWith("mine");
+    });
+    return c.json({ coupons: list });
+  } catch {
+    return c.json({ coupons: [] });
+  }
+});
+
+sellerRoute.post("/coupons", auth, async (c) => {
+  const u = getUser(c);
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const storeKey = String(b.storeKey ?? "").slice(0, 40);
+  const code = String(b.code ?? "").trim().toUpperCase().slice(0, 32);
+  const title = String(b.title ?? "").trim().slice(0, 180);
+  if (!storeKey || !code || !title) return c.json({ ok: false, error: "storeKey+code+title required" }, 400);
+  // Ownership: apne store pe hi coupon (mine-<phone> pattern ya sellerStores row).
+  try {
+    const mine = await db.select().from(sellerStores).where(eq(sellerStores.ownerId, u.id)).limit(20);
+    const ok = mine.some((s) => s.id === storeKey) || storeKey.startsWith("mine");
+    if (!ok) return c.json({ ok: false, error: "not your store" }, 403);
+    // Code clash: platform/seller kahin bhi same code na ho.
+    const all = await db.select().from(coupons).limit(200);
+    if (all.some((r) => String(r.code ?? "").toUpperCase() === code)) {
+      return c.json({ ok: false, error: "code already exists" }, 400);
+    }
+    const cp = await createSellerCoupon(storeKey, {
+      code,
+      title,
+      detail: typeof b.detail === "string" ? String(b.detail).slice(0, 320) : null,
+      offPct: Number(b.offPct ?? b.value ?? 10),
+      maxOff: Number(b.maxOff ?? 50),
+      minOrder: Number(b.minOrder ?? 99),
+    });
+    return c.json({ ok: true, coupon: cp });
+  } catch (e) {
+    return c.json({ ok: false, error: String(e).slice(0, 200) }, 500);
+  }
+});
+
+sellerRoute.patch("/coupons/:id", auth, async (c) => {
+  const id = c.req.param("id") ?? "";
+  const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const patch: Record<string, unknown> = {};
+  if (typeof b.active === "boolean") patch.active = b.active;
+  if (typeof b.title === "string" && b.title.trim()) patch.title = String(b.title).slice(0, 180);
+  if (b.maxOff !== undefined && Number.isFinite(Number(b.maxOff))) patch.maxOff = Math.max(1, Math.round(Number(b.maxOff)));
+  if (b.minOrder !== undefined && Number.isFinite(Number(b.minOrder))) patch.minOrder = Math.max(0, Math.round(Number(b.minOrder)));
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, error: "empty" }, 400);
+  const rows = await db
+    .update(coupons)
+    .set(patch)
+    .where(and(eq(coupons.id, id), eq(coupons.fundedBy, "seller")))
+    .returning();
+  if (!rows[0]) return c.json({ ok: false, error: "not found" }, 404);
+  return c.json({ ok: true, coupon: rows[0] });
+});
+
+sellerRoute.delete("/coupons/:id", auth, async (c) => {
+  const id = c.req.param("id") ?? "";
+  await db.delete(coupons).where(and(eq(coupons.id, id), eq(coupons.fundedBy, "seller")));
   return c.json({ ok: true, id });
 });

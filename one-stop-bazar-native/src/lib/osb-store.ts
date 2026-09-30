@@ -137,6 +137,10 @@ interface OSBState {
   wishlist: string[];
   orders: Order[];
   coupon: string | null;
+  // Server-validated coupon proof (fail-closed: proof nahi = discount nahi).
+  // 5 min fresh — validate sirf Apply/checkout pe hota hai, quota order pe jalta hai.
+  couponProof: { code: string; discount: number; fundedBy?: string | null; storeKey?: string | null; at: number } | null;
+  setCouponProof: (p: OSBState["couponProof"]) => void;
   language: "en" | "hi";
   notifEnabled: boolean;
   address: string;
@@ -253,7 +257,9 @@ export const useOSB = create<OSBState>()(
       cart: [],
       wishlist: ["p10", "p19"],
       orders: [],
-      coupon: "BAZAR50",
+      coupon: null,
+      couponProof: null,
+      setCouponProof: (p) => set({ couponProof: p }),
       language: "en",
       notifEnabled: true,
       address: "",

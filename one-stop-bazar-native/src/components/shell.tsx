@@ -596,21 +596,47 @@ function Row({ l, v, green }: { l: string; v: string; green?: boolean }) {
   );
 }
 
-/* ── CouponStrip (web customer.tsx:669) ── */
+/* ── CouponStrip (server-validated only — tap = validate, fail = message) ── */
 export function CouponStrip() {
   const coupon = useOSB((s) => s.coupon);
+  const couponProof = useOSB((s) => s.couponProof);
   const set = useOSB((s) => s.set);
+  const setCouponProof = useOSB((s) => s.setCouponProof);
+  const cartTotal = useOSB((s) => s.cartTotal);
   const { colors } = useTheme();
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
   return (
+    <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
       {COUPONS.map((c) => {
-        const on = coupon === c.code;
+        const on = coupon === c.code && !!couponProof && couponProof.code === c.code;
         return (
           <Pressable
             key={c.code}
             onPress={() => {
-              set({ coupon: c.code });
+              if (busy) return;
+              setBusy(c.code);
+              setErr("");
               blip(760);
+              // Fail-closed: bina server OK ke coupon select nahi hoga.
+              import("@/lib/api").then((m) =>
+                m.apiValidateCoupon(c.code, cartTotal()).then((v) => {
+                  if (v?.ok) {
+                    set({ coupon: c.code });
+                    setCouponProof({ code: c.code, discount: Number(v.discount ?? 0), fundedBy: v.coupon?.fundedBy ?? null, storeKey: v.coupon?.storeKey ?? null, at: Date.now() });
+                    blip(920, 0.15);
+                  } else {
+                    setCouponProof(null);
+                    setErr(v?.error || "Internet chahiye coupon ke liye");
+                    blip(320);
+                  }
+                }).catch(() => {
+                  setCouponProof(null);
+                  setErr("Internet chahiye coupon ke liye");
+                  blip(320);
+                }).finally(() => setBusy(""))
+              );
             }}
             style={{
               width: 210,
@@ -624,11 +650,13 @@ export function CouponStrip() {
           >
             <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{c.code}</Text>
             <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink }}>{c.title}</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{c.detail}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{busy === c.code ? "Checking…" : c.detail}</Text>
           </Pressable>
         );
       })}
     </ScrollView>
+    {err ? <Text style={{ marginTop: 6, fontFamily: F.bold, fontSize: 11, color: "#E23744" }}>{err}</Text> : null}
+    </>
   );
 }
 
@@ -640,12 +668,13 @@ export function CartSheet() {
   const decCart = useOSB((s) => s.decCart);
   const addToCart = useOSB((s) => s.addToCart);
   const coupon = useOSB((s) => s.coupon);
+  const couponProof = useOSB((s) => s.couponProof);
   const seller = useOSB((s) => s.seller);
   const sellerCoupons = useOSB((s) => s.sellerCoupons);
   const storewideOff = useOSB((s) => s.storewideOff);
   const { colors } = useTheme();
   if (!showCart) return null;
-  const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons);
+  const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons, couponProof);
   return (
     <Sheet onClose={() => set({ showCart: false })} zIndex={50} maxH="88%">
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 12 }}>
@@ -741,6 +770,11 @@ export function CartSheet() {
               <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>
                 You save {inr(q.discount + (q.fee === 0 ? q.groups.reduce((a, g) => a + g.quote.deliveryFee, 0) : 0))} on this order 🎉
               </Text>
+              {coupon && !couponProof ? (
+                <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "#E23744" }}>
+                  {coupon} verify nahi hua (internet chahiye) — discount checkout pe lagega ya hatega.
+                </Text>
+              ) : null}
             </View>
             {q.blocked ? (
               <View style={{ marginTop: 8, borderRadius: 12, backgroundColor: "rgba(226,55,68,.1)", padding: 12 }}>
