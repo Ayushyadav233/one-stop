@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { Alert, Dimensions, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Dimensions, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { Easing, FadeIn, SlideInRight, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Gift,
   Heart,
   Leaf,
   Mic,
@@ -30,6 +31,7 @@ import {
   Pencil,
   ScanSearch,
   Search,
+  Send,
   Sparkles,
   Star,
   Sun,
@@ -39,7 +41,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { activeCategories, blip, fastestEta, productEtaText, useMarketplace, useOSB } from "@/lib/osb-store";
-import { apiGetCoupons, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
+import { apiGetCoupons, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
 import { useT } from "@/lib/i18n";
@@ -2425,6 +2427,10 @@ export function ProfileTab() {
    const logout = useOSB((s) => s.logout);
    const riderCtx = useOSB((s) => s.riderCtx);
    const role = useOSB((s) => s.role);
+   const walletPoints = useOSB((s) => s.walletPoints);
+   const syncWallet = useOSB((s) => s.syncWallet);
+   const myReferralCode = useOSB((s) => s.myReferralCode);
+   const [refCount, setRefCount] = useState<number | null>(null);
    const t = useT();
    // Live subtitles (backend-first, static fallback) — sheet bandh hote hi refresh.
    const [couponCount, setCouponCount] = useState(4);
@@ -2444,8 +2450,42 @@ export function ProfileTab() {
        })
        .catch(() => {});
    };
-   useEffect(() => { refreshStats(); }, []);
-   const closeSheet = () => { setSheet(null); refreshStats(); };
+   useEffect(() => {
+     refreshStats();
+     syncWallet();
+     apiGetReferrals().then((j) => {
+       if (j?.ok) {
+         if (typeof j.count === "number") setRefCount(j.count);
+         if (j.code) useOSB.getState().setWallet({ referralCode: j.code });
+       }
+     }).catch(() => {});
+   }, []);
+   const closeSheet = () => { setSheet(null); refreshStats(); syncWallet(); };
+
+   // Refer link + code share (WhatsApp / SMS / anywhere).
+   const shareRefer = async () => {
+     blip(700);
+     let code = myReferralCode;
+     if (!code) {
+       try {
+         const j = await apiGetReferrals();
+         if (j?.ok && j.code) {
+           code = j.code;
+           useOSB.getState().setWallet({ referralCode: j.code });
+           if (typeof j.count === "number") setRefCount(j.count);
+         }
+       } catch { /* offline */ }
+     }
+     if (!code) {
+       Alert.alert("Refer code abhi ready nahi", "Internet on karke 10 sec baad retry karo (server sync pending).");
+       return;
+     }
+     try {
+       await Share.share({
+         message: `One Stop Bazar pe aao! 🛍️ Mera refer code ${code} register karte time dalo aur ₹5 welcome bonus pao. Link: https://onestopbazar.app/r/${code}`,
+       });
+     } catch { /* dismissed */ }
+   };
 
    const rows = useMemo(() => {
      const base: [string, string, string, SheetKind | "admin"][] = [
@@ -2571,8 +2611,8 @@ export function ProfileTab() {
               <Wallet size={13} color={colors.ink3} />
               <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>WALLET</Text>
             </View>
-            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, color: colors.ink }}>₹486</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>+ ₹48 cashback pending</Text>
+            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, color: colors.ink }}>₹{Math.floor(walletPoints / 10)}</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{walletPoints} pts • tap to open</Text>
           </Pressable>
           <Pressable onPress={() => void copyCoupon()} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -2588,6 +2628,33 @@ export function ProfileTab() {
             <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? "Copied ✓" : "Tap to copy"}</Text>
           </Pressable>
         </View>
+
+        {/* Refer & Earn banner — code + link share yahi se */}
+        <Pressable
+          onPress={() => { setSheet("wallet"); blip(600); }}
+          style={{ marginTop: 12, borderRadius: 18, overflow: "hidden", backgroundColor: "#0C831F", padding: 14 }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ height: 44, width: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,.2)", alignItems: "center", justifyContent: "center" }}>
+              <Gift size={22} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>Refer & earn 100 pts (₹10) 🎉</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.8)" }}>
+                {myReferralCode
+                  ? `Tumhara code: ${myReferralCode}${refCount != null ? ` • ${refCount} friend${refCount === 1 ? "" : "s"} joined` : ""}`
+                  : "Apna code nikalo aur doston ko bhejo"}
+              </Text>
+            </View>
+            <Pressable
+              onPress={shareRefer}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 10 }}
+            >
+              <Send size={14} color="#0C831F" />
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#0C831F" }}>Invite</Text>
+            </Pressable>
+          </View>
+        </Pressable>
 
         <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
            {rows.map(([e, title, s, kind], ix) => (

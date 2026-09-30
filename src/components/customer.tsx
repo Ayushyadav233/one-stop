@@ -580,7 +580,7 @@ export function ProfileTab() {
       </motion.button>
 
       <div className="mt-3 grid grid-cols-2 gap-2.5">
-        <div className="rounded-[18px] card p-3.5 "><div className="flex items-center gap-1.5 text-[10.5px] font-black uppercase tracking-widest text-ink3"><Wallet size={13} /> Wallet</div><div className="mt-1 text-[22px] font-extrabold">₹486</div><div className="text-[11px] font-bold text-[#0C831F]">+ ₹48 cashback pending</div></div>
+        <div className="rounded-[18px] card p-3.5 "><div className="flex items-center gap-1.5 text-[10.5px] font-black uppercase tracking-widest text-ink3"><Wallet size={13} /> Wallet</div><div className="mt-1 text-[22px] font-extrabold">₹0</div><div className="text-[11px] font-bold text-[#0C831F]">App me login karke balance dekho</div></div>
         <div className="rounded-[18px] card p-3.5 "><div className="flex items-center gap-1.5 text-[10.5px] font-black uppercase tracking-widest text-ink3"><Ticket size={13} /> Coupon</div><div className="mt-1.5 flex items-center gap-1.5"><span className="rounded-lg border border-dashed border-[#0E3B2E]/40 bg-[#F8CB46]/30 px-2 py-1 text-[12px] font-black">{coupon ?? "—"}</span><Copy size={13} className="opacity-50" /></div><div className="mt-1 text-[11px] font-bold text-ink3">Tap to copy</div></div>
       </div>
 

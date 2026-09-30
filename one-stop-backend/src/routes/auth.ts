@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { randomBytes, randomInt } from "node:crypto";
 import { db } from "../db/index.js";
-import { otpCodes, users } from "../db/schema.js";
+import { otpCodes, referrals, users, walletTx } from "../db/schema.js";
 import { and, desc, eq } from "drizzle-orm";
 import { firebaseEnabled, normalizeIndianPhone, verifyFirebaseIdToken } from "../lib/firebase.js";
 import { logError, logOk, logWarn, maskPhone } from "../lib/logger.js";
+import { makeReferralCode, REFEREE_BONUS_POINTS, REFER_REWARD_POINTS } from "./wallet.js";
 
 export const authRoute = new Hono();
 
@@ -14,6 +15,39 @@ export const authRoute = new Hono();
 // Rollout rule: MSG91 live hone ke BAAD hi Render pe OTP_DEV_MODE=false karo,
 // warna koi login nahi kar payega.
 const OTP_DEV_MODE = process.env.OTP_DEV_MODE !== "false";
+
+// Signup pe referral code lagao (register-time). Fail-soft: code galat ho to
+// signup nahi rokna — bas bina bonus ke user banao.
+async function applySignupReferral(newUserId: string, rawCode: unknown, newPhone: string) {
+  const code = String(rawCode ?? "").trim().toUpperCase().slice(0, 16);
+  if (!code) return;
+  try {
+    const refRows = await db.select().from(users).where(eq(users.referralCode, code)).limit(1);
+    const referrer = refRows[0];
+    if (!referrer || referrer.id === newUserId) return;
+    await db.update(users).set({ referredBy: code }).where(eq(users.id, newUserId));
+    await db.update(users).set({ walletPoints: Number(referrer.walletPoints ?? 0) + REFER_REWARD_POINTS }).where(eq(users.id, referrer.id));
+    const meRows = await db.select().from(users).where(eq(users.id, newUserId)).limit(1);
+    await db.update(users).set({ walletPoints: Number(meRows[0]?.walletPoints ?? 0) + REFEREE_BONUS_POINTS }).where(eq(users.id, newUserId));
+    try {
+      await db.insert(referrals).values({ referrerId: referrer.id, refereeId: newUserId, code, rewardPoints: REFER_REWARD_POINTS });
+      await db.insert(walletTx).values([
+        { userId: referrer.id, kind: "earn", points: REFER_REWARD_POINTS, note: `Referral bonus (${maskPhone(newPhone)})` },
+        { userId: newUserId, kind: "earn", points: REFEREE_BONUS_POINTS, note: `Welcome bonus (code ${code})` },
+      ]);
+    } catch { /* ledger optional */ }
+    logOk(`[referral] signup ${code}`, `${maskPhone(referrer.phone)} +${REFER_REWARD_POINTS}pts`);
+  } catch (e) {
+    logWarn("[referral] signup bonus skipped", String(e).slice(0, 160));
+  }
+}
+
+// Naye user ko unique referral code do (fail-soft — purani DB pe null).
+async function ensureCodeFor(id: string, phone: string) {
+  try {
+    await db.update(users).set({ referralCode: makeReferralCode(phone) }).where(eq(users.id, id));
+  } catch { /* column pending */ }
+}
 
 // Rate-limit (in-memory; Render free = single instance, isliye kaafi):
 // - same phone: min 60s gap between requests
@@ -130,11 +164,14 @@ authRoute.post("/verify-otp", async (c) => {
     const token = randomBytes(24).toString("hex");
     if (existing[0]) {
       await db.update(users).set({ token }).where(eq(users.id, existing[0].id));
+      if (!existing[0].referralCode) await ensureCodeFor(existing[0].id, phone);
       logOk(`[auth] login ✓ ${maskPhone(phone)}`, `role=${existing[0].role ?? "customer"}`);
       return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name, role: existing[0].role ?? "customer" } });
     }
     const name = String(b.name ?? "Guest").slice(0, 120);
     const created = await db.insert(users).values({ phone, name, token }).returning({ id: users.id, phone: users.phone, name: users.name, role: users.role });
+    await ensureCodeFor(created[0].id, phone);
+    await applySignupReferral(created[0].id, b.referralCode, phone);
     logOk(`[auth] signup ✓ ${maskPhone(phone)}`, `name=${name}`);
     return c.json({ ok: true, token, user: created[0] });
   } catch (e) {
@@ -160,6 +197,7 @@ authRoute.post("/firebase", async (c) => {
     const existing = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
     if (existing[0]) {
       await db.update(users).set({ token }).where(eq(users.id, existing[0].id));
+      if (!existing[0].referralCode) await ensureCodeFor(existing[0].id, phone);
       logOk(`[auth] firebase login ✓ ${maskPhone(phone)}`);
       return c.json({ ok: true, token, user: { id: existing[0].id, phone, name: existing[0].name } });
     }
@@ -168,6 +206,8 @@ authRoute.post("/firebase", async (c) => {
       .insert(users)
       .values({ phone, name, token })
       .returning({ id: users.id, phone: users.phone, name: users.name });
+    await ensureCodeFor(created[0].id, phone);
+    await applySignupReferral(created[0].id, b.referralCode, phone);
     logOk(`[auth] firebase signup ✓ ${maskPhone(phone)}`);
     return c.json({ ok: true, token, user: created[0] });
   } catch {

@@ -101,7 +101,7 @@ import { LoginScreen } from "./login";
 import { ProfileSetupScreen } from "./profile-setup";
 import { LocationSetupScreen } from "./location-setup";
 import * as SecureStore from "expo-secure-store";
-import { apiGetOrders, apiPostOrder, apiSeed, setApiToken } from "@/lib/api";
+import { apiGetOrders, apiPostOrder, apiRedeemWallet, apiSeed, setApiToken } from "@/lib/api";
 import { registerForPush } from "@/lib/push";
 import { fromApiOrder } from "@/lib/commerce";
 
@@ -804,19 +804,48 @@ export function CheckoutSheet() {
   const storewideOff = useOSB((s) => s.storewideOff);
   const userName = useOSB((s) => s.userName);
   const phone = useOSB((s) => s.phone);
+  const walletPoints = useOSB((s) => s.walletPoints);
+  const useWallet = useOSB((s) => s.useWallet);
+  const syncWallet = useOSB((s) => s.syncWallet);
   const { colors } = useTheme();
   const [pay, setPay] = useState("UPI");
   const [placing, setPlacing] = useState(false);
+  useEffect(() => { syncWallet(); }, []);
   if (!checkoutOpen) return null;
   const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons);
   const grand = q.total;
+  // Wallet cash: 10 pts = ₹1, bill se zyada nahi.
+  const walletAvail = Math.floor(walletPoints / 10);
+  const walletOff = useWallet ? Math.min(walletAvail, grand) : 0;
+  const payable = grand - walletOff;
   const eta = Math.max(...q.groups.map((g) => g.quote.etaMins), 20);
   const doPlace = async () => {
     if (q.blocked || cart.length === 0) return;
     setPlacing(true);
     blip(880, 0.12);
+    // Wallet redeem pehle (backend ledger), fail-soft local deduct.
+    let walletApplied = 0;
+    if (walletOff > 0) {
+      const pts = walletOff * 10;
+      try {
+        const r = await apiRedeemWallet(pts);
+        if (r?.ok && typeof r.points === "number") useOSB.getState().setWallet({ points: r.points });
+        else useOSB.getState().setWallet({ points: Math.max(0, walletPoints - pts) });
+        walletApplied = walletOff;
+      } catch {
+        useOSB.getState().setWallet({ points: Math.max(0, walletPoints - pts) });
+        walletApplied = walletOff;
+      }
+    }
     let last: LiveOrder | null = null;
-    for (const g of q.groups) {
+    // Wallet discount ko stores pe pro-rata baanto (rounding pehli दुकान me adjust).
+    let distributed = 0;
+    for (let gi = 0; gi < q.groups.length; gi++) {
+      const g = q.groups[gi];
+      const share = gi === q.groups.length - 1
+        ? walletApplied - distributed
+        : Math.round((walletApplied * g.quote.total) / (grand || 1));
+      distributed += share;
       const localId =
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
@@ -833,9 +862,9 @@ export function CheckoutSheet() {
         items: g.items,
         subtotal: g.quote.subtotal,
         fee: g.quote.fee,
-        discount: g.quote.discount,
-        total: g.quote.total,
-        payment: pay,
+        discount: g.quote.discount + share,
+        total: Math.max(0, g.quote.total - share),
+        payment: walletApplied >= grand && payable === 0 ? `Wallet` : pay,
         status: "new",
         etaMins: g.quote.etaMins,
         otp: String(Math.floor(1000 + Math.random() * 9000)),
@@ -856,6 +885,7 @@ export function CheckoutSheet() {
             discount: live.discount,
             total: live.total,
             payment: live.payment,
+            walletUsed: walletApplied > 0 ? share : 0,
             status: "new",
             etaMins: live.etaMins,
             distanceKm: live.distanceKm,
@@ -922,6 +952,42 @@ export function CheckoutSheet() {
             <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 11.5, color: "#0C5B21" }}>100% safe • Stores never see card details</Text>
           </View>
         </View>
+        <Pressable
+          onPress={() => {
+            if (walletAvail <= 0) return;
+            set({ useWallet: !useWallet });
+            blip(640);
+          }}
+          style={{
+            marginTop: 10,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            borderRadius: 16,
+            borderWidth: 2,
+            borderColor: useWallet && walletOff > 0 ? "#0C831F" : colors.line,
+            backgroundColor: useWallet && walletOff > 0 ? "rgba(12,131,31,.06)" : colors.card,
+            padding: 14,
+            opacity: walletAvail <= 0 ? 0.6 : 1,
+          }}
+        >
+          <View style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#E8F5E9" }}>
+            <Text style={{ fontSize: 20 }}>💰</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>
+              {walletAvail > 0 ? `Wallet: ₹${walletAvail} available` : "Wallet: 0 balance"}
+            </Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink2 }}>
+              {walletAvail > 0
+                ? (useWallet ? `₹${walletOff} applied • ${walletPoints} pts (10 pts = ₹1)` : "Tap to apply on this order")
+                : "Friend refer karo — 1 refer = 100 pts (₹10)"}
+            </Text>
+          </View>
+          <View style={{ height: 26, width: 46, borderRadius: 13, backgroundColor: useWallet && walletOff > 0 ? "#0C831F" : colors.chip, alignItems: useWallet && walletOff > 0 ? "flex-end" : "flex-start", justifyContent: "center", paddingHorizontal: 3 }}>
+            <View style={{ height: 20, width: 20, borderRadius: 10, backgroundColor: "#fff" }} />
+          </View>
+        </Pressable>
         <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, backgroundColor: "#111117", padding: 14 }}>
           <View style={{ flexDirection: "row" }}>
             {cart.slice(0, 3).map((x, ix) => (
@@ -932,9 +998,9 @@ export function CheckoutSheet() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: F.bold, fontSize: 11, color: "rgba(255,255,255,.6)" }}>
-              {cart.reduce((a, c) => a + c.qty, 0)} items • {q.groups.length} store{q.groups.length === 1 ? "" : "s"} • −{inr(q.discount)}
+              {cart.reduce((a, c) => a + c.qty, 0)} items • {q.groups.length} store{q.groups.length === 1 ? "" : "s"} • −{inr(q.discount)}{walletOff > 0 ? ` • −₹${walletOff} wallet` : ""}
             </Text>
-            <Text style={{ fontFamily: F.extra, fontSize: 20, color: "#fff" }}>{inr(grand)}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 20, color: "#fff" }}>{inr(payable)}</Text>
           </View>
         </View>
         <View style={{ marginTop: 10, gap: 6, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12 }}>
@@ -946,6 +1012,12 @@ export function CheckoutSheet() {
               <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: colors.ink }}>{inr(g.quote.total)}</Text>
             </View>
           ))}
+          {walletOff > 0 ? (
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: "#0C831F" }}>Wallet applied 💰</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0C831F" }}>−₹{walletOff}</Text>
+            </View>
+          ) : null}
           <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: colors.ink3 }}>
             Each store delivers with its own staff. Free delivery is set by the shopkeeper.
           </Text>
@@ -978,7 +1050,7 @@ export function CheckoutSheet() {
           ) : (
             <>
               <Bike size={19} color="#fff" />
-              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Place order • {inr(grand)}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Place order • {inr(payable)}</Text>
             </>
           )}
         </Pressable>

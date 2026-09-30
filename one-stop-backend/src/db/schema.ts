@@ -100,6 +100,10 @@ export const users = pgTable("osb_users", {
   userLng: numeric("user_lng", { precision: 10, scale: 6 }),
   token: text("token"),
   role: varchar("role", { length: 32 }).default("customer"),
+  // Wallet + referral (points: 10 pts = ₹1; 1 successful refer = 100 pts)
+  walletPoints: integer("wallet_points").default(0),
+  referralCode: varchar("referral_code", { length: 16 }),
+  referredBy: varchar("referred_by", { length: 16 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -231,5 +235,27 @@ export const pushTokens = pgTable("osb_push_tokens", {
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   platform: varchar("platform", { length: 16 }).default("android"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ---- Wallet + referral ledger ----
+// points unit me hisaab (10 pts = ₹1). kind: earn(refer/cashback) | redeem | refund | adjust
+export const walletTx = pgTable("osb_wallet_tx", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  kind: varchar("kind", { length: 16 }).default("earn"),
+  points: integer("points").notNull().default(0),
+  orderCode: varchar("order_code", { length: 24 }),
+  note: varchar("note", { length: 240 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Har successful referral ek row (referrer ko 100 pts signup pe).
+export const referrals = pgTable("osb_referrals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  referrerId: uuid("referrer_id").references(() => users.id, { onDelete: "set null" }),
+  refereeId: uuid("referee_id").references(() => users.id, { onDelete: "set null" }),
+  code: varchar("code", { length: 16 }).notNull(),
+  rewardPoints: integer("reward_points").default(100),
   createdAt: timestamp("created_at").defaultNow(),
 });

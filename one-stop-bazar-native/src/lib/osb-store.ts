@@ -175,6 +175,14 @@ interface OSBState {
   storeReviews: StoreReview[];
   storewideOff: number;
   accounts: Record<string, AccountSnap>;
+  // Wallet + referral (backend-synced; 10 pts = ₹1)
+  walletPoints: number;
+  myReferralCode: string;
+  walletTx: { id: string; kind?: string | null; points?: number | null; note?: string | null; createdAt?: string }[];
+  walletSyncAt: number;
+  useWallet: boolean;
+  setWallet: (w: { points?: number; referralCode?: string | null; tx?: OSBState["walletTx"] }) => void;
+  syncWallet: () => void;
   login: (phone: string) => void;
   logout: () => void;
   saveAccount: () => void;
@@ -300,6 +308,33 @@ export const useOSB = create<OSBState>()(
       storeReviews: [],
       storewideOff: 0,
       accounts: {},
+      walletPoints: 0,
+      myReferralCode: "",
+      walletTx: [],
+      walletSyncAt: 0,
+      useWallet: true,
+      setWallet: (w) =>
+        set({
+          walletPoints: w.points ?? get().walletPoints,
+          myReferralCode: w.referralCode ?? get().myReferralCode,
+          walletTx: w.tx ?? get().walletTx,
+          walletSyncAt: Date.now(),
+        }),
+      syncWallet: () => {
+        // Throttle 20s; fail-soft offline.
+        if (Date.now() - get().walletSyncAt < 20_000) return;
+        import("@/lib/api").then((m) =>
+          m.apiGetWallet().then((j) => {
+            if (j && (j.ok ?? true)) {
+              get().setWallet({
+                points: Number(j.points ?? get().walletPoints),
+                referralCode: j.referralCode ?? get().myReferralCode,
+                tx: Array.isArray(j.tx) ? j.tx : get().walletTx,
+              });
+            }
+          }).catch(() => {})
+        ).catch(() => {});
+      },
        riderCtx: null,
        set: (p) => set(p),
        setRole: (r) => set({ role: r }),
@@ -771,7 +806,7 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx } as unknown as OSBState) }
+     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx, walletPoints: s.walletPoints, myReferralCode: s.myReferralCode, walletTx: s.walletTx, useWallet: s.useWallet } as unknown as OSBState) }
   )
 );
 

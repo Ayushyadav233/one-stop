@@ -13,7 +13,7 @@ import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { ArrowRight, Check, Mail, Sparkles, User, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
 import { useSheetBackCloser } from "@/lib/back";
-import { apiPatchMe } from "@/lib/api";
+import { apiApplyReferral, apiPatchMe } from "@/lib/api";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F } from "./ui";
@@ -36,6 +36,8 @@ export function ProfileSetupScreen() {
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
   const [avatar, setAvatar] = useState(AVATARS[0]);
+  const [referCode, setReferCode] = useState("");
+  const [referMsg, setReferMsg] = useState("");
   const [err, setErr] = useState("");
 
   const save = () => {
@@ -51,6 +53,22 @@ export function ProfileSetupScreen() {
     }
     blip(920, 0.16);
     completeProfile({ name: name.trim(), email: email.trim(), gender, avatar });
+    // Backend me bhi naam save karo — warna naye device/APK pe user phir
+    // "Guest" milega aur register screen dubara aa jayegi.
+    apiPatchMe({ name: name.trim(), email: email.trim() || undefined, gender: gender || undefined, avatar }).catch(() => {});
+    // Referral code ho to lagao — referrer ko 100 pts, tumhe ₹5 welcome bonus.
+    const rc = referCode.trim().toUpperCase();
+    if (rc) {
+      apiApplyReferral(rc).then((j) => {
+        if (j?.ok) {
+          setReferMsg(`Referral applied! Tumhe ₹5 bonus mila 🎉`);
+          useOSB.getState().syncWallet();
+          blip(880);
+        } else if (j?.error) {
+          setReferMsg(j.error);
+        }
+      }).catch(() => {});
+    }
   };
 
   return (
@@ -212,6 +230,43 @@ export function ProfileSetupScreen() {
             Logged in as <Text style={{ fontFamily: F.extra, color: colors.ink }}>{phone}</Text>
           </Text>
         </View>
+
+        {/* Referral (optional) */}
+        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>REFER CODE (OPTIONAL)</Text>
+        <View
+          style={{
+            marginTop: 6,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            borderRadius: 16,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.line,
+            paddingHorizontal: 14,
+            paddingVertical: 14,
+          }}
+        >
+          <Text style={{ fontSize: 17 }}>🎁</Text>
+          <TextInput
+            value={referCode}
+            onChangeText={(v) => {
+              setReferCode(v.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 16));
+              setReferMsg("");
+              setErr("");
+            }}
+            placeholder="Friend ka code? e.g. OSB1234ABC"
+            placeholderTextColor={colors.ink3}
+            autoCapitalize="characters"
+            style={{ flex: 1, fontFamily: F.bold, fontSize: 14, letterSpacing: 1, color: colors.ink }}
+          />
+        </View>
+        {referCode.trim() ? (
+          <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 11, color: colors.ink2 }}>
+            Code lagane pe friend ko 100 pts aur tumhe ₹5 welcome bonus 🎉
+          </Text>
+        ) : null}
+        {referMsg ? <Text style={{ marginTop: 6, fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{referMsg}</Text> : null}
 
         {err ? <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 12, color: "#E23744" }}>{err}</Text> : null}
       </ScrollView>

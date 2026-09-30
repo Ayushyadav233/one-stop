@@ -79,7 +79,7 @@ export function apiRequestOtp(phone: string) {
 }
 
 export function apiVerifyOtp(phone: string, otp: string, name?: string) {
-  return json<{ ok?: boolean; token?: string; error?: string }>(
+  return json<{ ok?: boolean; token?: string; error?: string; user?: ApiProfile }>(
     "/api/auth/verify-otp",
     { method: "POST", body: JSON.stringify({ phone, otp, name }) },
     10000
@@ -95,7 +95,7 @@ export const FIREBASE_AUTH_ENABLED = true;
 
 /** Firebase ID token → backend app token (same shape as verify-otp). */
 export function apiFirebaseLogin(idToken: string, name?: string) {
-  return json<{ ok?: boolean; token?: string; error?: string }>(
+  return json<{ ok?: boolean; token?: string; error?: string; user?: ApiProfile }>(
     "/api/auth/firebase",
     { method: "POST", body: JSON.stringify({ idToken, name }) },
     10000
@@ -124,7 +124,7 @@ export type ApiProfile = {
   id?: string; phone?: string; name?: string | null; email?: string | null;
   gender?: string | null; avatar?: string | null; address?: string | null;
   addressArea?: string | null; userLat?: number | null; userLng?: number | null;
-  role?: string;
+  role?: string; walletPoints?: number | null; referralCode?: string | null; referredBy?: string | null;
 };
 export function apiGetMe() {
   return json<{ ok?: boolean; user?: ApiProfile }>("/api/users/me", undefined, 10000);
@@ -135,6 +135,38 @@ export function apiPatchMe(patch: Partial<ApiProfile>) {
   }, 10000);
 }
 
+/** Wallet + referral — backend /api/wallet/* (fail-soft null when offline/migration pending). */
+// Conversion: 10 points = ₹1. 1 successful refer = 100 pts (₹10), referee ko 50 welcome.
+export const POINTS_PER_RUPEE = 10;
+export const REFER_REWARD_POINTS = 100;
+export type ApiWalletTx = {
+  id: string; kind?: string | null; points?: number | null; orderCode?: string | null;
+  note?: string | null; createdAt?: string;
+};
+export function apiGetWallet() {
+  return json<{ ok?: boolean; points?: number; rupees?: number; referralCode?: string | null; tx?: ApiWalletTx[] }>(
+    "/api/wallet/me", undefined, 10000
+  );
+}
+export function apiRedeemWallet(points: number, orderCode?: string) {
+  return json<{ ok?: boolean; points?: number; rupees?: number; error?: string }>(
+    "/api/wallet/redeem",
+    { method: "POST", body: JSON.stringify({ points, orderCode }) },
+    10000
+  );
+}
+export function apiGetReferrals() {
+  return json<{ ok?: boolean; code?: string | null; link?: string | null; count?: number; earnedPoints?: number; earnedRupees?: number }>(
+    "/api/wallet/referrals/me", undefined, 10000
+  );
+}
+export function apiApplyReferral(code: string) {
+  return json<{ ok?: boolean; error?: string; referrerReward?: number; refereeBonus?: number; points?: number }>(
+    "/api/wallet/referrals/apply",
+    { method: "POST", body: JSON.stringify({ code }) },
+    10000
+  );
+}
 /** Coupons — public list + validate (fail-soft [] / null). */
 export type ApiCoupon = {
   id?: string; code: string; title: string; detail?: string | null;

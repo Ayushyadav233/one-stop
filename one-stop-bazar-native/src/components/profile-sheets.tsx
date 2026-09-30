@@ -4,17 +4,20 @@
  * Backend-first, fail-soft: offline me static/empty state, kabhi crash nahi.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Share, Text, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
-import { Bell, BellOff, Check, ChevronDown, Copy, Globe, Moon, Phone, Star, Sun, Trash2, X } from "lucide-react-native";
+import { Bell, BellOff, Check, ChevronDown, Copy, Globe, Moon, Phone, Send, Star, Sun, Trash2, Users, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
 import { useSheetBackCloser } from "@/lib/back";
 import { COUPONS } from "@/lib/data";
 import {
   apiDeleteReview,
   apiGetCoupons,
+  apiGetReferrals,
   apiMyReviews,
   apiValidateCoupon,
+  POINTS_PER_RUPEE,
+  REFER_REWARD_POINTS,
   type ApiCoupon,
   type ApiReview,
 } from "@/lib/api";
@@ -393,36 +396,143 @@ export function HelpSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-/* ═══════════ WalletSheet ═══════════ */
+/* ═══════════ WalletSheet (real-time backend) ═══════════ */
 export function WalletSheet({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { colors } = useTheme();
+  const walletPoints = useOSB((s) => s.walletPoints);
+  const walletTx = useOSB((s) => s.walletTx);
+  const syncWallet = useOSB((s) => s.syncWallet);
+  const myReferralCode = useOSB((s) => s.myReferralCode);
+  const [refCount, setRefCount] = useState<number | null>(null);
+  const [refLink, setRefLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const refreshRefer = () => {
+    setSyncing(true);
+    blip(600);
+    syncWallet();
+    apiGetReferrals().then((j) => {
+      if (j?.ok) {
+        if (typeof j.count === "number") setRefCount(j.count);
+        if (j.link) setRefLink(j.link);
+        if (j.code) useOSB.getState().setWallet({ referralCode: j.code });
+      }
+    }).catch(() => {}).finally(() => setSyncing(false));
+    setTimeout(() => setSyncing(false), 4000);
+  };
+
+  useEffect(() => {
+    refreshRefer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const rupees = Math.floor(walletPoints / POINTS_PER_RUPEE);
+  const code = myReferralCode || "";
+
+  const copyCode = async () => {
+    if (!code) return;
+    try {
+      const Clipboard = require("expo-clipboard") as { setStringAsync(s: string): Promise<void> };
+      await Clipboard.setStringAsync(code);
+    } catch { /* visible anyway */ }
+    setCopied(true);
+    blip(760);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  const shareRefer = async () => {
+    if (!code) return;
+    blip(700);
+    const link = refLink ?? `https://onestopbazar.app/r/${code}`;
+    try {
+      await Share.share({
+        message: `One Stop Bazar pe aao! Mera refer code ${code} use karo aur ₹5 welcome bonus pao. Link: ${link}`,
+      });
+    } catch { /* dismissed */ }
+  };
+
   return (
     <PSheet onClose={onClose}>
       <PHead title={t("shWallet")} onClose={onClose} />
       <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: "#111117", padding: 18, alignItems: "center" }}>
-        <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: "rgba(255,255,255,.6)" }}>TOTAL BALANCE</Text>
-        <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 34, color: "#fff" }}>₹486</Text>
-        <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#34D399" }}>+ ₹48 cashback pending</Text>
+        <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: "rgba(255,255,255,.6)" }}>WALLET BALANCE</Text>
+        <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 34, color: "#fff" }}>₹{rupees}</Text>
+        <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#34D399" }}>{walletPoints} points • 10 pts = ₹1</Text>
+        <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.55)" }}>
+          Shopping pe cash ki tarah use hota hai
+        </Text>
       </View>
-      <View style={{ marginTop: 10, gap: 8 }}>
-        {[
-          ["💰", "Cashback balance", "₹438", "Delivered orders se kamaya"],
-          ["⏳", "Pending cashback", "₹48", "Last order deliver hote hi add hoga"],
-          ["🎟️", "Active coupon value", "up to ₹100", "BAZAR50 — Coupons tab se apply karo"],
-        ].map(([e, title, val, sub]) => (
-          <View key={title} style={{ flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
-            <Text style={{ fontSize: 22 }}>{e}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{title}</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{sub}</Text>
-            </View>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#0C831F" }}>{val}</Text>
+
+      {/* Refer card */}
+      <View style={{ marginTop: 10, borderRadius: 18, backgroundColor: "rgba(12,131,31,.08)", borderWidth: 1.5, borderStyle: "dashed", borderColor: "rgba(12,131,31,.45)", padding: 14 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Users size={18} color="#0C831F" />
+          <Text style={{ flex: 1, fontFamily: F.extra, fontSize: 13, color: colors.ink }}>Refer & earn {REFER_REWARD_POINTS} pts (₹{REFER_REWARD_POINTS / POINTS_PER_RUPEE})</Text>
+        </View>
+        <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11, color: colors.ink2 }}>
+          1 friend join kare = tumhe {REFER_REWARD_POINTS} points. Friend ko bhi ₹5 welcome bonus.
+          {refCount != null ? ` Ab tak ${refCount} friend${refCount === 1 ? "" : "s"} 🎉` : ""}
+        </Text>
+        {code ? (
+          <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Pressable onPress={copyCode} style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 12 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 16, letterSpacing: 2, color: colors.ink }}>{code}</Text>
+              <Copy size={14} color={colors.ink3} />
+            </Pressable>
+            <Pressable onPress={shareRefer} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#0C831F", paddingHorizontal: 16, paddingVertical: 12 }}>
+              <Send size={14} color="#fff" />
+              <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Share</Text>
+            </Pressable>
           </View>
-        ))}
+        ) : (
+          <View style={{ marginTop: 8, gap: 6 }}>
+            <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>
+              Code load nahi hua (internet/server sync pending).
+            </Text>
+            <Pressable onPress={refreshRefer} style={{ alignSelf: "flex-start", borderRadius: 10, backgroundColor: "#0C831F", paddingHorizontal: 14, paddingVertical: 9 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>{syncing ? "Loading…" : "↻ Code nikalo"}</Text>
+            </Pressable>
+          </View>
+        )}
+        <Text style={{ marginTop: 6, fontFamily: F.bold, fontSize: 11, color: copied ? "#0C831F" : colors.ink3 }}>
+          {copied ? "Code copied ✓ — WhatsApp pe bhejo" : "Tap code to copy • Share se link bhejo"}
+        </Text>
+      </View>
+
+      {/* Tx history */}
+      <Text style={{ marginTop: 14, fontFamily: F.extra, fontSize: 11, letterSpacing: 1.5, color: colors.ink3 }}>TRANSACTIONS</Text>
+      <View style={{ marginTop: 8, gap: 8 }}>
+        {walletTx.length === 0 ? (
+          <View style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14, alignItems: "center" }}>
+            <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink2 }}>Abhi koi transaction nahi</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>Friend refer karo ya shopping pe use karo — yahi dikhega.</Text>
+          </View>
+        ) : (
+          walletTx.slice(0, 20).map((tx) => {
+            const pts = Number(tx.points ?? 0);
+            const pos = pts >= 0;
+            return (
+              <View key={tx.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12 }}>
+                <Text style={{ fontSize: 20 }}>{pos ? "💰" : "🛒"}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={2} style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{tx.note || (pos ? "Earned" : "Redeemed")}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10, color: colors.ink3 }}>
+                    {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : ""}
+                    {tx.kind ? ` • ${tx.kind}` : ""}
+                  </Text>
+                </View>
+                <Text style={{ fontFamily: F.extra, fontSize: 13, color: pos ? "#0C831F" : "#E23744" }}>
+                  {pos ? "+" : ""}{pts} pts
+                </Text>
+              </View>
+            );
+          })
+        )}
       </View>
       <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 11, color: colors.ink3, textAlign: "center" }}>
-        Wallet checkout pe auto-apply hota hai • Refund 24–48 hrs me yahi aata hai
+        Checkout pe wallet auto-apply hota hai • Refund 24–48 hrs me yahi aata hai
       </Text>
     </PSheet>
   );

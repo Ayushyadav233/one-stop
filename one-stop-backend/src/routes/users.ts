@@ -20,6 +20,9 @@ function publicUser(r: typeof users.$inferSelect) {
     userLat: r.userLat != null ? Number(r.userLat) : null,
     userLng: r.userLng != null ? Number(r.userLng) : null,
     role: r.role,
+    walletPoints: Number((r as { walletPoints?: unknown }).walletPoints ?? 0),
+    referralCode: (r as { referralCode?: unknown }).referralCode as string | null ?? null,
+    referredBy: (r as { referredBy?: unknown }).referredBy as string | null ?? null,
   };
 }
 

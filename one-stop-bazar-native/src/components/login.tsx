@@ -8,8 +8,10 @@
  * - Session persistence: phone saved with expo-secure-store
  *   SecureStore.setItemAsync("osb-phone", digits); identity still flows into
  *   zustand via useOSB login() (same store semantics as web).
- * - No window/document/navigator usage. Demo rule identical: any 6-digit OTP
- *   works except 000000.
+ * - No window/document/navigator usage. FAIL-CLOSED auth: backend/Firebase
+ *   se token mile tabhi login — offline/random OTP se andar nahi jane deta.
+ *   Backend se aaye user.name (Guest nahi) ko turant completeProfile karta hai
+ *   taaki purana user register screen skip karke seedha app me jaye.
  */
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -30,11 +32,14 @@ const HERO =
 /** Firebase ka asli error code → insanon wali Hindi line. */
 function firebaseErrMsg(e: unknown): string {
   const code = String((e as { code?: unknown })?.code ?? "");
+  const msg = String((e as Error)?.message ?? "");
+  if (code.includes("missing-client-identifier") || msg.includes("missing-client-identifier"))
+    return "Firebase setup adhura hai (SHA-1 / Play Integrity missing). Firebase console me app ka SHA-1 (EAS keystore wala) + Play Integrity API on karo, naya google-services.json se rebuild karo. Tab tak test ke liye backend OTP use karo.";
   if (code.includes("invalid-verification-code")) return "Galat code hai. SMS/test-code dobara check karo.";
   if (code.includes("code-expired") || code.includes("session-expired")) return "Code expire ho gaya — Resend OTP dabao.";
   if (code.includes("too-many-requests")) return "Bahut try ho gaye — 5 min ruk ke retry karo.";
   if (code.includes("network")) return "Network issue — internet check karke retry karo.";
-  const m = String((e as Error)?.message ?? "").slice(0, 120);
+  const m = msg.slice(0, 120);
   return m ? `Firebase error: ${m}` : "OTP verify nahi hua. Retry karo.";
 }
 
@@ -98,7 +103,7 @@ export function LoginScreen() {
     }, 700);
   };
 
-  const saveSession = async (token: string) => {
+  const saveSession = async (token: string, serverUser?: { name?: string | null; email?: string | null; gender?: string | null; avatar?: string | null; walletPoints?: number | null; referralCode?: string | null }) => {
     try {
       await SecureStore.setItemAsync("osb-phone", digits);
       await SecureStore.setItemAsync("osb-token", token);
@@ -109,25 +114,52 @@ export function LoginScreen() {
       if (me?.user?.role) useOSB.getState().setRole(me.user.role);
     } catch { /* no backend */ }
     login(digits);
+    const st = useOSB.getState();
+    // Backend se aaya real naam turant lagao — taaki purana user
+    // register screen skip karke seedha app me jaye. "Guest"/khali = new user.
+    const sName = String(serverUser?.name ?? "").trim();
+    if (sName && sName !== "Guest") {
+      st.completeProfile({
+        name: sName,
+        email: String(serverUser?.email ?? st.userEmail ?? ""),
+        gender: String(serverUser?.gender ?? st.userGender ?? ""),
+        avatar: String(serverUser?.avatar ?? st.userAvatar ?? ""),
+      });
+    }
+    if (serverUser?.referralCode) st.setWallet({ referralCode: serverUser.referralCode });
     // Server profile pull (dusre device pe set naam/address yaha aa jayega).
     // Fail-soft: offline ho to local account snapshot hi rahega.
     try {
       const p = await apiGetMe();
       const u = p?.user;
       if (u) {
-        const st = useOSB.getState();
+        const st2 = useOSB.getState();
         // "Guest" backend default hai — real local naam ko overwrite mat karo.
-        if (u.name && u.name !== "Guest") st.completeProfile({ name: String(u.name), email: String(u.email ?? st.userEmail), gender: String(u.gender ?? st.userGender), avatar: String(u.avatar ?? st.userAvatar) });
+        if (u.name && u.name !== "Guest") st2.completeProfile({ name: String(u.name), email: String(u.email ?? st2.userEmail), gender: String(u.gender ?? st2.userGender), avatar: String(u.avatar ?? st2.userAvatar) });
         if (u.address || u.addressArea) {
-          st.setUserAddress({
-            area: String(u.addressArea ?? u.address ?? st.addressArea),
-            full: String(u.address ?? u.addressArea ?? st.address),
-            lat: u.userLat != null ? Number(u.userLat) : st.userLat,
-            lng: u.userLng != null ? Number(u.userLng) : st.userLng,
+          st2.setUserAddress({
+            area: String(u.addressArea ?? u.address ?? st2.addressArea),
+            full: String(u.address ?? u.addressArea ?? st2.address),
+            lat: u.userLat != null ? Number(u.userLat) : st2.userLat,
+            lng: u.userLng != null ? Number(u.userLng) : st2.userLng,
           });
         }
       }
     } catch { /* offline — local snapshot wins */ }
+    // Wallet sync (real-time balance + referral code).
+    try {
+      const { apiGetWallet } = await import("@/lib/api");
+      const w = await apiGetWallet();
+      if (w) {
+        useOSB.getState().setWallet({
+          points: Number(w.points ?? 0),
+          referralCode: w.referralCode ?? undefined,
+          tx: Array.isArray(w.tx) ? w.tx : undefined,
+        });
+      } else if (typeof serverUser?.walletPoints === "number") {
+        useOSB.getState().setWallet({ points: serverUser.walletPoints });
+      }
+    } catch { /* offline */ }
     registerForPush().catch(() => {});
   };
 
@@ -135,37 +167,35 @@ export function LoginScreen() {
     const v = code.join("");
     if (v.length < 6) return;
     if (v === "000000") {
-      setErr("Invalid OTP. Try 123456");
+      // Backend bhi 000000 ko hamesha reject karta hai (auth.ts) — ye demo/test code nahi hai.
+      setErr("Ye code invalid hai. SMS/test-code wala 6-digit code dalo.");
       blip(320);
       return;
     }
     blip(990, 0.16);
-    if (FIREBASE_AUTH_ENABLED && fbConfirm) {
+    if (FIREBASE_AUTH_ENABLED) {
       // Firebase path: SMS/test code confirm → ID token → backend app token.
+      // FAIL-CLOSED: fbConfirm nahi hai (send fail hua) to verify mat hone do.
+      if (!fbConfirm) {
+        setErr("OTP bheja hi nahi gaya (upar Firebase error dekho). Number badlo ya Resend dabao.");
+        blip(320);
+        return;
+      }
       try {
         const cred = await fbConfirm.confirm(v);
         const idToken = await cred.user.getIdToken();
         const res = await apiFirebaseLogin(idToken);
         if (res?.ok && res.token) {
-          await saveSession(res.token);
+          await saveSession(res.token, res.user);
           return;
         }
         // Code sahi tha (confirm chala) lekin backend login fail —
-        // 99% matlab server pe FIREBASE_PROJECT_ID missing (503).
-        // Diagnose karke backend dev-code fallback de do taaki user atke nahi.
+        // 99% matlab server pe FIREBASE_PROJECT_ID missing (503) ya API_BASE galat.
         const h = await apiHealth();
         if (!h) {
-          setErr("Server se connect nahi ho raha. Backend (8787) chal raha hai?");
+          setErr("Server se connect nahi ho raha. APK me API URL Render wala hona chahiye (10.0.2.2 sirf emulator pe chalta hai).");
           blip(320);
           return;
-        }
-        const b = await apiRequestOtp(digits);
-        if (b?.ok && b.otp) {
-          setDevOtp(b.otp);
-          setFbConfirm(null); // ab se backend-OTP path se verify hoga
-          setErr("");
-          blip(880);
-          return; // hint line me dev code dikhega — wahi dalo
         }
         setErr("Server pe Firebase setup adhura hai (key missing). Backend team se bolo.");
         blip(320);
@@ -176,24 +206,21 @@ export function LoginScreen() {
         return;
       }
     }
-    // Backend verify first (fail-soft): reachable + ok → token save;
-    // reachable + wrong → error; unreachable → local demo login (offline-first).
+    // Backend OTP path — FAIL-CLOSED: server reachable nahi to login mat hone do
+    // (pehle random OTP bhi andar le jata tha — wahi bug tha).
     const res = await apiVerifyOtp(digits, v);
-    if (res) {
-      if (res.ok && res.token) {
-        await saveSession(res.token);
-        return;
-      }
-      setErr(devOtp ? `Wrong OTP. Dev code: ${devOtp}` : "Wrong OTP. Try again.");
+    if (res?.ok && res.token) {
+      await saveSession(res.token, res.user);
+      return;
+    }
+    if (!res) {
+      setErr("Server se connect nahi ho raha. Internet + API URL check karo.");
       blip(320);
       return;
     }
-    try {
-      await SecureStore.setItemAsync("osb-phone", digits);
-    } catch {
-      /* secure store unavailable — zustand persist still holds the session */
-    }
-    login(digits);
+    setErr(devOtp ? `Wrong OTP. Dev code: ${devOtp}` : "Wrong OTP. Try again.");
+    blip(320);
+    return;
   };
 
   const typeOtp = (i: number, val: string) => {
