@@ -50,6 +50,7 @@ import {
   apiAdminOrders,
   apiAdminPatchCatRequest,
   apiAdminPatchHomeBlock,
+  apiAdminPatchCoupon,
   apiAdminPatchHomeConfig,
   apiAdminPatchOrder,
   apiAdminPatchStore,
@@ -891,19 +892,53 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [offPct, setOffPct] = useState("20");
+  const [minOrder, setMinOrder] = useState("149");
+  const [maxOff, setMaxOff] = useState("120");
+  const [maxUses, setMaxUses] = useState("1000");
+  const [perUser, setPerUser] = useState("1");
+  const [firstOnly, setFirstOnly] = useState(false);
+  const [budget, setBudget] = useState("50000");
+  const [expiryDays, setExpiryDays] = useState("60");
   const pendingReq = data.requests.filter((r) => S(r.status) === "pending").length;
 
   const createCoupon = () => {
     if (!code.trim() || !title.trim()) return;
-    apiAdminPostCoupon({ code: code.trim().toUpperCase(), title: title.trim(), offPct: N(offPct, 20) }).then((j) => {
+    const expiresAt = expiryDays.trim() ? new Date(Date.now() + Math.max(1, N(expiryDays, 60)) * 86400000).toISOString() : undefined;
+    apiAdminPostCoupon({
+      code: code.trim().toUpperCase(),
+      title: title.trim(),
+      offPct: N(offPct, 20),
+      minOrder: N(minOrder, 149),
+      maxOff: N(maxOff, 120),
+      maxUsesTotal: maxUses.trim() ? N(maxUses, 1000) : null,
+      maxUsesPerUser: N(perUser, 1),
+      firstOrderOnly: firstOnly,
+      maxBudget: budget.trim() ? N(budget, 50000) : null,
+      expiresAt,
+    }).then((j) => {
       if (j?.ok) {
         blip(920, 0.15);
         setCode("");
         setTitle("");
         setOffPct("20");
+        setMinOrder("149");
+        setMaxOff("120");
+        setMaxUses("1000");
+        setPerUser("1");
+        setFirstOnly(false);
+        setBudget("50000");
+        setExpiryDays("60");
         setAdding(false);
         void data.reload();
       }
+    });
+  };
+  const toggleCoupon = (c: R) => {
+    const id = S(c.id);
+    const next = !(c.active !== false);
+    apiAdminPatchCoupon(id, { active: next }).then(() => {
+      blip(next ? 920 : 420, 0.1);
+      void data.reload();
     });
   };
   const removeCoupon = (c: R) => {
@@ -934,19 +969,25 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
         </View>
         <View style={{ marginTop: 10, gap: 8 }}>
           {data.coupons.length === 0 && <Empty text={data.loading ? "Loading…" : "Koi coupon nahi — neeche se banao."} />}
-          {data.coupons.map((c) => (
-            <View key={S(c.id)} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, backgroundColor: colors.card2, padding: 10 }}>
+          {data.coupons.map((c) => {
+            const on = c.active !== false;
+            return (
+            <View key={S(c.id)} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, backgroundColor: colors.card2, padding: 10, opacity: on ? 1 : 0.55 }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{S(c.code)}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{S(c.code)}{on ? "" : " (OFF)"}</Text>
                 <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>
                   {S(c.title)} • {N(c.offPct)}% off, max ₹{N(c.maxOff)} • min ₹{N(c.minOrder)}
                 </Text>
               </View>
+              <Pressable onPress={() => toggleCoupon(c)} style={{ height: 32, paddingHorizontal: 10, borderRadius: 10, backgroundColor: on ? "#0C831F" : colors.chip, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 11, color: on ? "#fff" : colors.ink }}>{on ? "ON" : "OFF"}</Text>
+              </Pressable>
               <Pressable onPress={() => removeCoupon(c)} style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: "rgba(226,55,68,.1)", alignItems: "center", justifyContent: "center" }}>
                 <Trash2 size={14} color="#E23744" />
               </Pressable>
             </View>
-          ))}
+            );
+          })}
         </View>
         <Pressable onPress={() => setAdding(!adding)} style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 12 }}>
           <Plus size={15} color={colors.ink} />
@@ -956,7 +997,22 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
           <Animated.View entering={FadeIn.duration(200)} style={{ marginTop: 8, gap: 8 }}>
             <TextInput value={code} onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="CODE e.g. DIWALI25" placeholderTextColor={colors.ink3} autoCapitalize="characters" style={{ borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.extra, fontSize: 13, color: colors.ink }} />
             <TextInput value={title} onChangeText={setTitle} placeholder="Title e.g. Diwali 25% OFF" placeholderTextColor={colors.ink3} style={{ borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
-            <TextInput value={offPct} onChangeText={(v) => setOffPct(v.replace(/\D/g, "").slice(0, 2))} placeholder="OFF % e.g. 25" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput value={offPct} onChangeText={(v) => setOffPct(v.replace(/\D/g, "").slice(0, 2))} placeholder="OFF %" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+              <TextInput value={maxOff} onChangeText={(v) => setMaxOff(v.replace(/\D/g, "").slice(0, 5))} placeholder="Max ₹" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+              <TextInput value={minOrder} onChangeText={(v) => setMinOrder(v.replace(/\D/g, "").slice(0, 5))} placeholder="Min ₹" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput value={maxUses} onChangeText={(v) => setMaxUses(v.replace(/\D/g, "").slice(0, 6))} placeholder="Total uses" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+              <TextInput value={perUser} onChangeText={(v) => setPerUser(v.replace(/\D/g, "").slice(0, 2))} placeholder="/user" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+              <TextInput value={budget} onChangeText={(v) => setBudget(v.replace(/\D/g, "").slice(0, 7))} placeholder="Budget ₹" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              <TextInput value={expiryDays} onChangeText={(v) => setExpiryDays(v.replace(/\D/g, "").slice(0, 4))} placeholder="Expiry days" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
+              <Pressable onPress={() => setFirstOnly(!firstOnly)} style={{ flex: 1, borderRadius: 12, backgroundColor: firstOnly ? "#0C831F" : colors.card2, paddingVertical: 12, alignItems: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 12, color: firstOnly ? "#fff" : colors.ink }}>{firstOnly ? "First-order ON" : "First-order OFF"}</Text>
+              </Pressable>
+            </View>
             <Pressable onPress={createCoupon} style={{ borderRadius: 12, backgroundColor: "#0C831F", paddingVertical: 13, alignItems: "center" }}>
               <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Launch coupon</Text>
             </Pressable>

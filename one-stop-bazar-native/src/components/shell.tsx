@@ -840,13 +840,14 @@ export function CheckoutSheet() {
   const phone = useOSB((s) => s.phone);
   const walletPoints = useOSB((s) => s.walletPoints);
   const useWallet = useOSB((s) => s.useWallet);
+  const couponProof = useOSB((s) => s.couponProof);
   const syncWallet = useOSB((s) => s.syncWallet);
   const { colors } = useTheme();
   const [pay, setPay] = useState("UPI");
   const [placing, setPlacing] = useState(false);
   useEffect(() => { syncWallet(); }, []);
   if (!checkoutOpen) return null;
-  const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons);
+  const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons, couponProof);
   const grand = q.total;
   // Wallet cash: 10 pts = ₹1, bill se zyada nahi.
   const walletAvail = Math.floor(walletPoints / 10);
@@ -904,6 +905,9 @@ export function CheckoutSheet() {
         otp: String(Math.floor(1000 + Math.random() * 9000)),
         createdAt: Date.now(),
         distanceKm: g.storeId === (seller.storeId || "mine") ? Math.min(seller.radiusKm, 2.1) : 1.4,
+        couponCode: coupon || null,
+        walletUsed: walletApplied > 0 ? share : 0,
+        extraDiscount: 0,
       };
       try {
         const j = await apiPostOrder({
@@ -919,7 +923,9 @@ export function CheckoutSheet() {
             discount: live.discount,
             total: live.total,
             payment: live.payment,
+            couponCode: coupon || null,
             walletUsed: walletApplied > 0 ? share : 0,
+            extraDiscount: 0,
             status: "new",
             etaMins: live.etaMins,
             distanceKm: live.distanceKm,

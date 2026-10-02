@@ -27,6 +27,9 @@ export interface LiveOrder {
   status: OrderStatus;
   etaMins: number;
   createdAt: number;
+  couponCode?: string | null;
+  walletUsed?: number;
+  extraDiscount?: number;
   rider?: string;
   riderPhone?: string;
   riderLat?: number;
@@ -84,7 +87,7 @@ export interface SellerSettings {
   riders: Rider[];
   plan: "basic" | "growth" | "scale";
 }
-export interface SellerCoupon { id: string; code: string; title: string; detail: string; kind: "pct" | "flat"; value: number; maxOff: number; minOrder: number; active: boolean; used: number; expiry: string; }
+export interface SellerCoupon { id: string; code: string; title: string; detail: string; kind: "pct" | "flat"; value: number; maxOff: number; minOrder: number; active: boolean; used: number; expiry: string; firstOrderOnly?: boolean; }
 export interface SellerOrderItem { name: string; qty: number; price: number; }
 export type SellerOrderStatus = OrderStatus;
 export interface SellerOrder { id: string; code: string; storeId: string; customer: string; phone: string; address: string; items: SellerOrderItem[]; subtotal: number; fee: number; discount: number; total: number; payment: string; status: SellerOrderStatus; placedAt: string; createdAt: number; distanceKm: number; rider?: string; rating?: number; note?: string; etaMins: number; }

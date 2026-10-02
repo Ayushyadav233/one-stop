@@ -84,6 +84,7 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
   const { colors } = useTheme();
   const set = useOSB((s) => s.set);
   const activeCoupon = useOSB((s) => s.coupon);
+  const setCouponProof = useOSB((s) => s.setCouponProof);
   const cartTotal = useOSB((s) => s.cartTotal);
   const [list, setList] = useState<CouponVM[]>(COUPONS.map((c) => ({ code: c.code, title: c.title, detail: c.detail, minOrder: c.minOrder })));
   const [copied, setCopied] = useState("");
@@ -141,10 +142,16 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
       if (sub > 0) {
         const v = await apiValidateCoupon(c.code, sub);
         if (!v?.ok) {
+          setCouponProof(null);
           setMsg(v?.error || "Coupon apply nahi hua");
           blip(320);
           return;
         }
+        // Server proof save — bina iske checkout me discount ZERO (fail-closed).
+        setCouponProof({ code: c.code, discount: Number(v.discount ?? 0), fundedBy: (v.coupon as ApiCoupon | undefined)?.fundedBy ?? null, storeKey: (v.coupon as ApiCoupon | undefined)?.storeKey ?? null, at: Date.now() });
+      } else {
+        // Empty cart: select only, proof checkout pe CouponStrip se verify hoga.
+        setCouponProof(null);
       }
       set({ coupon: c.code });
       blip(920, 0.15);
@@ -152,7 +159,7 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy("");
     }
-  }, [cartTotal, onClose, set]);
+  }, [cartTotal, onClose, set, setCouponProof]);
 
   return (
     <PSheet onClose={onClose}>

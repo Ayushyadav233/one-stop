@@ -805,11 +805,12 @@ function CouponSheet({ id, onClose }: { id: string | null; onClose: () => void }
   const [maxOff, setMaxOff] = useState(String(exist?.maxOff ?? "100"));
   const [minOrder, setMinOrder] = useState(String(exist?.minOrder ?? "199"));
   const [expiry, setExpiry] = useState(exist?.expiry ?? "31 Dec");
+  const [firstOnly, setFirstOnly] = useState(!!exist?.firstOrderOnly);
   const save = () => {
     const cd = (code || `SAVE${value}`).toUpperCase().replace(/\s+/g, "");
     const title = kind === "pct" ? `${value}% OFF up to ₹${maxOff}` : `Flat ₹${value} OFF`;
-    if (id && exist) updateCoupon(id, { code: cd, title, kind, value: +value || 0, maxOff: +maxOff || 0, minOrder: +minOrder || 0, expiry });
-    else addCoupon({ id: "sc-" + Math.random().toString(36).slice(2, 7), code: cd, title, detail: `On orders above ₹${minOrder}`, kind, value: +value || 0, maxOff: +maxOff || 0, minOrder: +minOrder || 0, active: true, used: 0, expiry });
+    if (id && exist) updateCoupon(id, { code: cd, title, kind, value: +value || 0, maxOff: +maxOff || 0, minOrder: +minOrder || 0, expiry, firstOrderOnly: firstOnly });
+    else addCoupon({ id: "sc-" + Math.random().toString(36).slice(2, 7), code: cd, title, detail: `On orders above ₹${minOrder}`, kind, value: +value || 0, maxOff: +maxOff || 0, minOrder: +minOrder || 0, active: true, used: 0, expiry, firstOrderOnly: firstOnly });
     blip(920, 0.15);
     onClose();
   };
@@ -858,10 +859,14 @@ function CouponSheet({ id, onClose }: { id: string | null; onClose: () => void }
             <Field label="Expiry">
               <TextInput value={expiry} onChangeText={setExpiry} style={{ fontFamily: F.semi, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
             </Field>
+            <Pressable onPress={() => setFirstOnly(!firstOnly)} style={{ borderRadius: 12, backgroundColor: firstOnly ? "#0C831F" : colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 12, alignItems: "center" }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: firstOnly ? "#fff" : colors.ink }}>{firstOnly ? "First-order only: ON (naye customer)" : "First-order only: OFF"}</Text>
+            </Pressable>
             <View style={{ borderRadius: 12, backgroundColor: "rgba(12,131,31,.1)", padding: 12 }}>
               <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: "#0C5B21" }}>
-                Preview: <Text style={{ fontFamily: F.extra }}>{code || "CODE"}</Text> — {kind === "pct" ? `${value || 0}% OFF up to ₹${maxOff}` : `Flat ₹${value} OFF`} on orders above ₹{minOrder || 0}
+                Preview: <Text style={{ fontFamily: F.extra }}>{code || "CODE"}</Text> — {kind === "pct" ? `${value || 0}% OFF up to ₹${maxOff}` : `Flat ₹${value} OFF`} on orders above ₹{minOrder || 0}{firstOnly ? " • first order" : ""}
               </Text>
+              <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 10.5, color: "#0C5B21" }}>Apni jeb se — seller-funded, dukandaar ka kharcha.</Text>
             </View>
           </View>
           <Pressable onPress={save} style={{ marginTop: 16, borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 16, alignItems: "center" }}>
