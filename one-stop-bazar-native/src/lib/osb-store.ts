@@ -30,6 +30,11 @@ export interface LiveOrder {
   couponCode?: string | null;
   walletUsed?: number;
   extraDiscount?: number;
+  // Service booking (kind=service): slot + payment state. Product orders me undefined.
+  kind?: "product" | "service";
+  scheduledAt?: number | null;
+  slotLabel?: string | null;
+  payStatus?: "paid" | "pending";
   rider?: string;
   riderPhone?: string;
   riderLat?: number;
@@ -84,13 +89,15 @@ export interface SellerSettings {
   categories: string[];
   deliveryOn: boolean; radiusKm: number; deliveryFee: number; freeAbove: number; minOrder: number; pickup: boolean; avgTime: number;
   openTime: string; closeTime: string; closedDays: string[]; vacationUntil: string;
+  // Service bookings (auto-slot engine): kaun se din kaam, kitne din advance tak book.
+  workDays: number[]; advanceDays: number;
   riders: Rider[];
   plan: "basic" | "growth" | "scale";
 }
 export interface SellerCoupon { id: string; code: string; title: string; detail: string; kind: "pct" | "flat"; value: number; maxOff: number; minOrder: number; active: boolean; used: number; expiry: string; firstOrderOnly?: boolean; }
 export interface SellerOrderItem { name: string; qty: number; price: number; }
 export type SellerOrderStatus = OrderStatus;
-export interface SellerOrder { id: string; code: string; storeId: string; customer: string; phone: string; address: string; items: SellerOrderItem[]; subtotal: number; fee: number; discount: number; total: number; payment: string; status: SellerOrderStatus; placedAt: string; createdAt: number; distanceKm: number; rider?: string; rating?: number; note?: string; etaMins: number; }
+export interface SellerOrder { id: string; code: string; storeId: string; customer: string; phone: string; address: string; items: SellerOrderItem[]; subtotal: number; fee: number; discount: number; total: number; payment: string; status: SellerOrderStatus; placedAt: string; createdAt: number; distanceKm: number; rider?: string; rating?: number; note?: string; etaMins: number; kind?: "product" | "service"; scheduledAt?: number | null; slotLabel?: string | null; payStatus?: "paid" | "pending"; }
 export interface TeamMember { name: string; role: string; phone: string; active: boolean; }
 export interface StoreReview { name: string; rating: number; text: string; when: string; reply?: string; }
 
@@ -152,6 +159,7 @@ interface OSBState {
   userLat?: number;
   userLng?: number;
   storeId: string | null;
+  bookingPid: string | null;
   query: string;
   category: string;
   showCart: boolean;
@@ -271,6 +279,7 @@ export const useOSB = create<OSBState>()(
       userLat: undefined,
       userLng: undefined,
       storeId: null,
+      bookingPid: null,
       query: "",
       category: "all",
       showCart: false,
@@ -308,6 +317,7 @@ export const useOSB = create<OSBState>()(
         categories: [],
         deliveryOn: true, radiusKm: 5, deliveryFee: 29, freeAbove: 199, minOrder: 99, pickup: true, avgTime: 30,
         openTime: "10:00", closeTime: "21:00", closedDays: [], vacationUntil: "",
+        workDays: [0, 1, 2, 3, 4, 5, 6], advanceDays: 7,
         riders: [],
         plan: "growth",
       },
@@ -430,7 +440,7 @@ export const useOSB = create<OSBState>()(
         const emptySeller: SellerSettings = {
           onboarded: false, storeOpen: false, storeId: "mine-" + digits, coverImage: "", name: "", tagline: "", phone: formatted, address: "", description: "", announcement: "",
           categories: [], deliveryOn: true, radiusKm: 5, deliveryFee: 29, freeAbove: 199, minOrder: 99, pickup: true, avgTime: 30,
-          openTime: "10:00", closeTime: "21:00", closedDays: [], vacationUntil: "", riders: [], plan: "growth",
+          openTime: "10:00", closeTime: "21:00", closedDays: [], vacationUntil: "", workDays: [0, 1, 2, 3, 4, 5, 6], advanceDays: 7, riders: [], plan: "growth",
         };
         // is this number registered as delivery staff of some shop?
         let riderCtx: RiderCtx | null = null;

@@ -85,6 +85,44 @@ export function statusLabel(status: OrderStatus) {
   return map[status];
 }
 
+/**
+ * Service-booking lifecycle (Amazon style) — same statuses, service matlab:
+ * new = confirmation pending → accepted = schedule confirmed (yahi atka rehta hai)
+ * → onway = pro out for service (tabhi map live) → ready = pro reached
+ * → delivered = service done. `preparing` service flow me skip hota hai.
+ */
+export function serviceStatusText(o: { status: OrderStatus; slotLabel?: string | null }): string {
+  switch (o.status) {
+    case "new": return "Booking sent — waiting for confirmation";
+    case "accepted": return o.slotLabel ? `Schedule confirmed • ${o.slotLabel}` : "Schedule confirmed";
+    case "preparing": return o.slotLabel ? `Schedule confirmed • ${o.slotLabel}` : "Schedule confirmed";
+    case "onway": return "Pro is out for service";
+    case "ready": return "Pro has reached your location ✓";
+    case "delivered": return "Service completed 🎉";
+    case "cancelled": return "Booking cancelled";
+  }
+}
+
+/** Status pill — service me booking vocabulary. */
+export function serviceStatusPill(status: OrderStatus): string {
+  switch (status) {
+    case "new": return "BOOKING SENT";
+    case "accepted": return "CONFIRMED";
+    case "preparing": return "CONFIRMED";
+    case "onway": return "PRO ON THE WAY";
+    case "ready": return "PRO REACHED";
+    case "delivered": return "COMPLETED";
+    case "cancelled": return "CANCELLED";
+  }
+}
+
+/** Tracking headline — product purana, service naya vocabulary. */
+export function trackingHeadline(o: { kind?: string | null; status: OrderStatus; slotLabel?: string | null; rider?: string | null }): string | null {
+  if (o.kind !== "service") return null;
+  if (o.status === "onway" && o.rider) return `${o.rider.split(" ")[0]} is on the way`;
+  return serviceStatusText(o);
+}
+
 export function storeRules(storeId: string, seller: SellerSettings, storewideOff: number) {
   if (isMyStore(storeId, seller)) {
     return {
@@ -221,6 +259,10 @@ export function toApiOrder(o: LiveOrder) {
     couponCode: o.couponCode ?? null,
     walletUsed: o.walletUsed ?? 0,
     extraDiscount: o.extraDiscount ?? 0,
+    kind: o.kind ?? "product",
+    scheduledAt: o.scheduledAt ? new Date(o.scheduledAt).toISOString() : null,
+    slotLabel: o.slotLabel ?? null,
+    payStatus: o.payStatus ?? "paid",
     status: o.status,
     etaMins: o.etaMins,
     rider: o.rider ?? "",
@@ -253,6 +295,10 @@ export function fromApiOrder(row: Record<string, unknown>): LiveOrder {
     discount: Number(row.discount ?? 0),
     total: Number(row.total ?? 0),
     payment: String(row.payment ?? "UPI"),
+    kind: String(row.kind ?? "product") === "service" ? "service" : "product",
+    scheduledAt: row.scheduledAt ? new Date(String(row.scheduledAt)).getTime() : null,
+    slotLabel: row.slotLabel ? String(row.slotLabel) : null,
+    payStatus: String(row.payStatus ?? "paid") === "pending" ? "pending" : "paid",
     status: (String(row.status ?? "new") as OrderStatus),
     etaMins: Number(row.etaMins ?? 30),
     createdAt: Number.isFinite(created) ? created : Date.now(),

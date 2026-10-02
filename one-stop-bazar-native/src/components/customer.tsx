@@ -954,7 +954,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                         </View>
                       )}
                     </View>
-                    <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: on ? c.accent : colors.ink2 }}>{c.t}</Text>
+                    <Text numberOfLines={2} style={{ height: 28, fontFamily: F.extra, fontSize: 10.5, lineHeight: 13, textAlign: "center", color: on ? c.accent : colors.ink2 }}>{c.t}</Text>
                   </SpringBtn>
                 </Animated.View>
               );
@@ -966,7 +966,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                     <ChevronRight size={16} strokeWidth={3} color="#fff" />
                   </View>
                 </View>
-                <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: colors.ink2 }}>See all</Text>
+                <Text numberOfLines={2} style={{ height: 28, fontFamily: F.extra, fontSize: 10.5, lineHeight: 13, textAlign: "center", color: colors.ink2 }}>See all</Text>
               </SpringBtn>
             </Animated.View>
           </View>
@@ -1930,6 +1930,36 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
         if (mixed.length === 0 && !feed && !editing) return null;
         return (
           <View key={c.k}>
+          {c.k === "service" && (
+            <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+              <View style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12 }}>
+                <Pressable onPress={() => set({ category: "service" })} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ height: 40, width: 40, borderRadius: 12, overflow: "hidden", backgroundColor: "#7C5CFF18", alignItems: "center", justifyContent: "center" }}>
+                    {c.img ? <Img src={c.img} style={{ width: "100%", height: "100%" }} /> : <Text style={{ fontSize: 18 }}>{c.emoji}</Text>}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>Home services</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 6, backgroundColor: "rgba(12,131,31,.1)", paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#0C831F" }}>✓ VERIFIED</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
+                      {stores.length} pros{(() => { const f = fastestEta(stores); return f ? ` • visit from ${f} min` : ""; })()}
+                    </Text>
+                  </View>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: c.accent }}>Book ›</Text>
+                </Pressable>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 10, gap: 6 }}>
+                  {c.subs.slice(0, 8).map((s) => (
+                    <Pressable key={s} onPress={() => { set({ category: "service", query: s, tab: "search" }); blip(600); }} style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 11, paddingVertical: 6 }}>
+                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink2 }}>{s}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          )}
           <View style={{ paddingTop: 20 }}>
             <Pressable onPress={() => set({ category: c.k })} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -1946,12 +1976,14 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
                     )}
                   </View>
                   <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-                    {stores.length} store{stores.length === 1 ? "" : "s"}{(() => { const f = fastestEta(stores); return f ? ` • ⚡ from ${f} min` : ""; })()}
+                    {c.k === "service"
+                      ? `${stores.length} verified pro${stores.length === 1 ? "" : "s"}${(() => { const f = fastestEta(stores); return f ? ` • ⏱ visit from ${f} min` : ""; })()}`
+                      : `${stores.length} store${stores.length === 1 ? "" : "s"}${(() => { const f = fastestEta(stores); return f ? ` • ⚡ from ${f} min` : ""; })()}`}
                   </Text>
                 </View>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: c.accent }}>See all</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: c.accent }}>{c.k === "service" ? "Book" : "See all"}</Text>
                 <ChevronRight size={13} color={c.accent} />
               </View>
             </Pressable>
@@ -2008,6 +2040,8 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
   const out = isOutOfStock(p);
   const qty = cart.find((c) => c.productId === pid)?.qty ?? 0;
   const store = stores.find((s) => s.id === p.storeId);
+  const set = useOSB((s) => s.set);
+  const isSvc = store?.kind === "service";
   const etaText = productEtaText(p, store);
   const off = p.mrp ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0;
   const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: store?.name ?? "", unit: p.unit, tint: p.tint } as never;
@@ -2017,7 +2051,7 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
         <Img src={p.image} style={{ width: "100%", height: "100%" }} />
         {out && (
           <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.5, color: "#fff" }}>OUT OF STOCK</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.5, color: "#fff" }}>{isSvc ? "SLOTS FULL" : "OUT OF STOCK"}</Text>
           </View>
         )}
         {!out && off > 0 && (
@@ -2035,7 +2069,7 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
         {!!etaText && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Clock size={10} color={colors.ink3} />
-            <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{etaText}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{isSvc ? `${etaText} service` : etaText}</Text>
           </View>
         )}
         <Text numberOfLines={2} style={{ marginTop: 2, minHeight: 30, fontFamily: F.bold, fontSize: 12, lineHeight: 15, color: colors.ink }}>{p.name}</Text>
@@ -2050,8 +2084,12 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
           </View>
           {out ? (
             <View style={{ borderRadius: 8, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 6 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>OUT OF{"\n"}STOCK</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{isSvc ? "SLOTS\nFULL" : "OUT OF\nSTOCK"}</Text>
             </View>
+          ) : isSvc ? (
+            <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, borderWidth: 1.5, borderColor: "#7C5CFF", paddingHorizontal: 12, paddingVertical: 6 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#7C5CFF" }}>Book</Text>
+            </Pressable>
           ) : (
             <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
           )}
@@ -2109,7 +2147,7 @@ export function ZomatoCard({ id, index, onOpen }: { id: string; index: number; o
             </View>
           )}
           <View style={{ position: "absolute", right: 10, bottom: 36, borderRadius: 8, backgroundColor: "rgba(255,255,255,.95)", paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#111114" }}>⏱ {s.etaMins} min • {s.distanceKm} km</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#111114" }}>{s.kind === "service" ? `🛠️ visit ~${s.etaMins} min` : `⏱ ${s.etaMins} min • ${s.distanceKm} km`}</Text>
           </View>
         </View>
         <View style={{ padding: 14 }}>
@@ -2124,12 +2162,14 @@ export function ZomatoCard({ id, index, onOpen }: { id: string; index: number; o
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <Bike size={13} color={colors.ink3} />
               <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>
-                {s.deliveryFee === 0 ? "FREE delivery" : `₹${s.deliveryFee} delivery`} • {s.priceForTwo} for two
+                {s.kind === "service"
+                  ? `${s.deliveryFee === 0 ? "Visit FREE" : `₹${s.deliveryFee} visit`} • ${s.openHours}`
+                  : `${s.deliveryFee === 0 ? "FREE delivery" : `₹${s.deliveryFee} delivery`} • ${s.priceForTwo} for two`}
               </Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#E23744" }}>MENU</Text>
-              <ChevronRight size={13} color="#E23744" />
+              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: s.kind === "service" ? "#7C5CFF" : "#E23744" }}>{s.kind === "service" ? "BOOK" : "MENU"}</Text>
+              <ChevronRight size={13} color={s.kind === "service" ? "#7C5CFF" : "#E23744"} />
             </View>
           </View>
         </View>
@@ -2328,8 +2368,19 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
                   {o.items[0] && <Img src={(o.items[0] as unknown as { image?: string }).image ?? STORES[0].image} style={{ width: "100%", height: "100%" }} />}
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{o.storeName}</Text>
-                  <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{o.code} • {o.items.length} items • {inr(o.total)}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{o.storeName}</Text>
+                    {o.kind === "service" && (
+                      <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 6, paddingVertical: 1 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.5, color: "#7C5CFF" }}>BOOKING</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>
+                    {o.kind === "service"
+                      ? `${o.code} • 🗓 ${o.slotLabel ?? "slot"} • ${inr(o.total)}${o.payStatus === "pending" ? " • due after service" : " • paid"}`
+                      : `${o.code} • ${o.items.length} items • ${inr(o.total)}`}
+                  </Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: o.status === "cancelled" ? "rgba(226,55,68,.1)" : o.status === "new" ? "#FEF3C7" : "rgba(12,131,31,.08)" }}>
                   <LiveDot color={o.status === "cancelled" ? "#E23744" : o.status === "new" ? "#E8830C" : "#0C831F"} />
@@ -2343,8 +2394,10 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
                   {o.items.map((x) => `${x.qty}× ${x.name}`).join(" • ").slice(0, 64)}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Track</Text>
-                  <ChevronRight size={14} color="#E23744" />
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: o.kind === "service" ? "#7C5CFF" : "#E23744" }}>
+                    {o.kind === "service" && (o.status === "new" || o.status === "accepted") ? "View" : "Track"}
+                  </Text>
+                  <ChevronRight size={14} color={o.kind === "service" ? "#7C5CFF" : "#E23744"} />
                 </View>
               </View>
             </Pressable>
@@ -2699,6 +2752,7 @@ export function ProfileTab() {
 /* ═══════════ StoreSheet ═══════════ */
 export function StoreSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const { stores, products } = useMarketplace();
+  const set = useOSB((s) => s.set);
   const s = stores.find((x) => x.id === id);
   const menu = inStockFirst(products.filter((p) => p.storeId === id));
   useSheetBackCloser(!!s, onClose);
@@ -2816,13 +2870,17 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
                       <View style={{ position: "absolute", bottom: 22, left: "50%", marginLeft: -36 }}>
                         {out ? (
                           <View style={{ borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 7 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>OUT OF STOCK</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{s.kind === "service" ? "SLOTS FULL" : "OUT OF STOCK"}</Text>
                           </View>
+                        ) : s.kind === "service" ? (
+                          <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, backgroundColor: "#7C5CFF", paddingHorizontal: 22, paddingVertical: 8 }}>
+                            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>Book</Text>
+                          </Pressable>
                         ) : (
                           <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
                         )}
                       </View>
-                      <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{p.unit} • customizable</Text>
+                      <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{s.kind === "service" ? `${p.unit} • ${p.eta ?? "fixed duration"}` : `${p.unit} • customizable`}</Text>
                     </View>
                   </Animated.View>
                 );

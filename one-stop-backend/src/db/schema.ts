@@ -97,6 +97,11 @@ export const orders = pgTable("osb_orders", {
   total: integer("total").default(0),
   couponCode: varchar("coupon_code", { length: 32 }),
   walletUsed: integer("wallet_used").default(0),
+  // Service bookings (0013): product orders me null.
+  kind: varchar("kind", { length: 16 }).default("product"),
+  scheduledAt: timestamp("scheduled_at"),
+  slotLabel: varchar("slot_label", { length: 80 }),
+  payStatus: varchar("pay_status", { length: 16 }).default("paid"),
   status: varchar("status", { length: 32 }).default("new"),
   payment: varchar("payment", { length: 32 }).default("UPI"),
   address: varchar("address", { length: 320 }).default("HSR Layout, Bengaluru"),

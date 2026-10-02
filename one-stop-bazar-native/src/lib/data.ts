@@ -122,6 +122,7 @@ export interface CategoryDef { k: string; t: string; sub: string; img: string; k
 
 export const CATEGORIES: CategoryDef[] = [
   { k: "food", t: "Food", sub: "Restaurants & cafes", img: IMG.biryani1, kinds: ["food"], accent: "#E23744", eta: "25 min", emoji: "🍛", featured: true, subs: ["Biryani", "North Indian", "South Indian", "Chinese", "Burgers", "Desserts"] },
+  { k: "service", t: "Home Services", sub: "Verified pros at home", img: IMG.facial, kinds: ["service"], accent: "#7C5CFF", eta: "45 min", emoji: "🛠️", featured: true, subs: ["Plumbing", "Electrical", "Salon at home", "Cleaning", "Appliance repair", "Painting", "Carpentry", "Pest control"] },
   { k: "grocery", t: "Grocery", sub: "Daily needs in minutes", img: IMG.vegMarket, kinds: ["grocery"], accent: "#0C831F", eta: "12 min", emoji: "🥬", featured: true, subs: ["Vegetables & Fruits", "Dairy & Eggs", "Staples & Atta", "Snacks", "Beverages", "Snacks & Munchies"] },
   { k: "medical", t: "Pharmacy", sub: "Medicines, 24×7", img: IMG.meds, kinds: ["medical"], accent: "#1573FF", eta: "15 min", emoji: "💊", featured: true, subs: ["Medicines", "Wellness", "Health devices", "Surgical", "Baby care"] },
   { k: "bakery", t: "Bakery & Cakes", sub: "Fresh bakes daily", img: IMG.cakeSlice, kinds: ["bakery"], accent: "#C2185B", eta: "30 min", emoji: "🎂", subs: ["Cakes", "Breads", "Cookies", "Ice cream", "Pastries"] },
@@ -140,7 +141,6 @@ export const CATEGORIES: CategoryDef[] = [
   { k: "sports", t: "Sports & Fitness", sub: "Gear & equipment", img: IMG.sports, kinds: ["sports"], accent: "#2E7D32", eta: "1 day", emoji: "🏋️", subs: ["Fitness", "Cricket", "Cycling", "Yoga", "Outdoor"] },
   { k: "auto", t: "Automobile", sub: "Car & bike accessories", img: IMG.auto, kinds: ["auto"], accent: "#37474F", eta: "1 day", emoji: "🚗", subs: ["Car accessories", "Bike accessories", "Cleaning", "Safety", "Tools"] },
   { k: "household", t: "Household & Cleaning", sub: "Detergents & essentials", img: IMG.cleaning, kinds: ["household", "grocery"], accent: "#00897B", eta: "18 min", emoji: "🧺", subs: ["Detergents", "Fresheners", "Tissue & disposables", "Cleaning tools"] },
-  { k: "service", t: "Home Services", sub: "Verified pros at home", img: IMG.facial, kinds: ["service"], accent: "#7C5CFF", eta: "45 min", emoji: "🛠️", featured: true, subs: ["Plumbing", "Electrical", "Salon at home", "Cleaning", "Appliance repair"] },
 ];
 
 export const STORES: Store[] = [
@@ -172,6 +172,9 @@ export const STORES: Store[] = [
   { id: "s26", name: "GizmoHub", slug: "gizmohub", kind: "mobile", tagline: "Chargers, cases & cables", emoji: "🔌", image: IMG.mobile, tint: "#C5CAE9", rating: 4.5, ratingsCount: "4.4k", etaMins: 35, deliveryFee: 19, distanceKm: 1.2, address: "27th Main HSR", isOpen: true, offers: ["Cables at ₹99"], tags: ["Chargers", "Cases", "Cables"], openHours: "10 AM – 10 PM", healthScore: 90, cuisine: "Mobile • Computer accessories", priceForTwo: "—" },
   { id: "s27", name: "Kitchen Kraft", slug: "kitchenkraft", kind: "homekitchen", tagline: "Cookware & smart kitchen", emoji: "🍳", image: IMG.kitchen, tint: "#D7CCC8", rating: 4.6, ratingsCount: "2.0k", etaMins: 1440, deliveryFee: 0, distanceKm: 2.3, address: "Central Market", isOpen: true, offers: ["Cookware sets 40% OFF"], tags: ["Cookware", "Storage", "Tools"], openHours: "10 AM – 9 PM", healthScore: 89, cuisine: "Cookware • Storage • Decor", priceForTwo: "—" },
   { id: "s28", name: "DailyNeeds Mart", slug: "dailyneeds", kind: "household", tagline: "Detergents & cleaning essentials", emoji: "🧺", image: IMG.cleaning, tint: "#B2DFDB", rating: 4.5, ratingsCount: "5.8k", etaMins: 18, deliveryFee: 15, distanceKm: 0.8, address: "HSR Sector 1", isOpen: true, offers: ["₹100 OFF above ₹699"], tags: ["Detergents", "Cleaning", "Fresheners"], openHours: "7 AM – 10 PM", healthScore: 92, cuisine: "Detergents • Cleaning • Household", priceForTwo: "—" },
+  { id: "s29", name: "CoolCare Appliances", slug: "coolcare", kind: "service", tagline: "AC • Fridge • Washing machine", emoji: "❄️", image: IMG.electric, tint: "#E0F2FF", rating: 4.8, ratingsCount: "6.3k", etaMins: 60, deliveryFee: 0, distanceKm: 1.5, address: "Citywide visits", isOpen: true, offers: ["Free visit with repair"], tags: ["Appliance repair", "AC service"], openHours: "8 AM – 9 PM", healthScore: 94, cuisine: "AC Service • Appliance Repair", priceForTwo: "—" },
+  { id: "s30", name: "Rangwala Painters", slug: "rangwala", kind: "service", tagline: "Full home painting pros", emoji: "🎨", image: IMG.clean, tint: "#FFF0DC", rating: 4.7, ratingsCount: "2.9k", etaMins: 120, deliveryFee: 0, distanceKm: 2.4, address: "Site visits", isOpen: true, offers: ["Free site inspection"], tags: ["Painting", "Waterproofing"], openHours: "9 AM – 7 PM", healthScore: 91, cuisine: "Painting • Waterproofing", priceForTwo: "—" },
+  { id: "s31", name: "Shield Pest Control", slug: "shieldpest", kind: "service", tagline: "Cockroach • Termite • Mosquito", emoji: "🛡️", image: IMG.clean2, tint: "#E8F5E9", rating: 4.6, ratingsCount: "3.7k", etaMins: 90, deliveryFee: 0, distanceKm: 2.0, address: "Citywide visits", isOpen: true, offers: ["90-day protection"], tags: ["Pest control", "Deep cleaning"], openHours: "8 AM – 8 PM", healthScore: 90, cuisine: "Pest Control • Sanitization", priceForTwo: "—" },
 ];
 
 export const PRODUCTS: Product[] = [
@@ -223,6 +226,13 @@ export const PRODUCTS: Product[] = [
   { id: "p46", storeId: "s26", name: "65W GaN Charger Bundle", description: "Charger + braided C-to-C 1.5m.", price: 1099, mrp: 1799, emoji: "🔌", image: IMG.mobile, category: "Mobile Accessories", rating: 4.6, isVeg: true, isBestseller: true, stock: 38, unit: "1 set", tint: "#C5CAE9", eta: "35 mins" },
   { id: "p47", storeId: "s27", name: "Non-Stick Cookware 3-Pc", description: "Kadhai, pan, tawa — induction ready.", price: 1899, mrp: 3499, emoji: "🍳", image: IMG.kitchen, category: "Kitchen", rating: 4.5, isVeg: true, stock: 14, unit: "3 pcs", tint: "#D7CCC8", eta: "1 day" },
   { id: "p48", storeId: "s28", name: "Liquid Detergent Family Pack", description: "2L + 1L refill, top & front load.", price: 449, mrp: 599, emoji: "🧴", image: IMG.cleaning, category: "Household", rating: 4.6, isVeg: true, isBestseller: true, stock: 70, unit: "3 L", tint: "#B2DFDB", eta: "18 mins" },
+  { id: "p49", storeId: "s9", name: "Electrician Visit — Switch & Socket", description: "Visit + up to 30 min labour. Spares extra, safety checked.", price: 149, emoji: "💡", image: IMG.electric, category: "Electrical", rating: 4.8, isVeg: true, stock: 8, unit: "Visit", tint: "#FFF4C2", eta: "45 mins" },
+  { id: "p50", storeId: "s9", name: "Bathroom Fittings Fix", description: "Leak, flush tank & tap fixes in one visit.", price: 299, mrp: 449, emoji: "🚿", image: IMG.plumber, category: "Plumbing", rating: 4.8, isVeg: true, isBestseller: true, stock: 8, unit: "Visit", tint: "#E6E4FF", eta: "60 mins" },
+  { id: "p51", storeId: "s10", name: "Men's Haircut at Home (30 min)", description: "Scissors + trimmer cut, cleanup included.", price: 299, mrp: 449, emoji: "💈", image: IMG.facial, category: "Salon", rating: 4.7, isVeg: true, stock: 8, unit: "30 min", tint: "#FFE7F5", eta: "30 mins" },
+  { id: "p52", storeId: "s11", name: "Bathroom Deep Clean", description: "Descaling, tiles & fittings. 2 pros • 60 mins.", price: 499, mrp: 799, emoji: "🚿", image: IMG.clean, category: "Cleaning", rating: 4.8, isVeg: true, isBestseller: true, stock: 8, unit: "Service", tint: "#DFF7F3", eta: "60 mins" },
+  { id: "p53", storeId: "s29", name: "Split AC Foam Service", description: "Indoor + outdoor, gas check & report.", price: 599, mrp: 899, emoji: "❄️", image: IMG.electric, category: "Appliance repair", rating: 4.8, isVeg: true, isBestseller: true, stock: 8, unit: "Visit", tint: "#E0F2FF", eta: "60 mins" },
+  { id: "p54", storeId: "s30", name: "1BHK Fresh Painting", description: "Putty + primer + 2 coats. Paint extra at MRP.", price: 8999, mrp: 12999, emoji: "🎨", image: IMG.clean, category: "Painting", rating: 4.7, isVeg: true, stock: 4, unit: "Service", tint: "#FFF0DC", eta: "2 days" },
+  { id: "p55", storeId: "s31", name: "Cockroach Control (1BHK)", description: "Gel + spray, 90-day protection warranty.", price: 699, mrp: 999, emoji: "🛡️", image: IMG.clean2, category: "Pest control", rating: 4.6, isVeg: true, stock: 8, unit: "Visit", tint: "#E8F5E9", eta: "45 mins" },
 ];
 
 export const CATS = [
@@ -235,6 +245,9 @@ export const CATS = [
   { k: "cake", t: "Cakes", img: IMG.cakeSlice },
   { k: "salon", t: "Salon", img: IMG.facial },
   { k: "plumber", t: "Plumber", img: IMG.plumber },
+  { k: "electrician", t: "Electrician", img: IMG.electric },
+  { k: "cleaning", t: "Cleaning", img: IMG.clean },
+  { k: "acrepair", t: "AC Repair", img: IMG.tapTool },
   { k: "meds", t: "Meds", img: IMG.meds },
 ];
 

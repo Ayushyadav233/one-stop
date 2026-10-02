@@ -83,14 +83,17 @@ import {
   getStoreLocation,
   openGoogleMapsNav,
   quoteCart,
+  serviceStatusPill,
   statusLabel,
   statusStep,
   timeAgo,
+  trackingHeadline,
 } from "@/lib/commerce";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, LiveDot } from "./ui";
 import { CustomerHome, OrdersTab, ProfileTab, SavedTab, SearchTab, StoreSheet } from "./customer";
+import { BookingSheet } from "./service-booking";
 import { CategoriesTab } from "./categories";
 import { ProviderDash, ProviderMore, ProviderOrders } from "./provider";
 import { SellerCatalog, SellerMarketing, SellerOnboarding } from "./seller";
@@ -1131,6 +1134,7 @@ export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
     if (o) blip(990, 0.2);
   }, [o]);
   if (!o) return null;
+  const isSvc = o.kind === "service";
   const cover = (o.items[0] as unknown as { image?: string })?.image ?? STORES[0].image;
   return (
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,.7)", padding: 24 }}>
@@ -1151,23 +1155,25 @@ export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
           </View>
         </View>
         <View style={{ paddingHorizontal: 24, paddingBottom: 24, paddingTop: 32, width: "100%", alignItems: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 21, letterSpacing: -0.4, color: "#111114", textAlign: "center" }}>Order sent to store! 🎉</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 21, letterSpacing: -0.4, color: "#111114", textAlign: "center" }}>{isSvc ? "Booking request sent! 🛠️" : "Order sent to store! 🎉"}</Text>
           <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12.5, lineHeight: 18, color: "#4E4E59", textAlign: "center" }}>
-            {o.storeName} just got your order.{"\n"}They’ll accept it — then you can track live.
+            {isSvc
+              ? <>{o.storeName} will confirm your{"\n"}🗓 {o.slotLabel ?? "slot"} shortly.</>
+              : <>{o.storeName} just got your order.{"\n"}They’ll accept it — then you can track live.</>}
           </Text>
           <View style={{ marginTop: 12, width: "100%", borderRadius: 16, borderWidth: 2, borderStyle: "dashed", borderColor: "rgba(0,0,0,.12)", backgroundColor: "#F7F7F8", padding: 12, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.5, color: "#8C8C99" }}>ORDER ID</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.5, color: "#8C8C99" }}>{isSvc ? "BOOKING ID" : "ORDER ID"}</Text>
             <Text style={{ fontFamily: F.extra, fontSize: 17, color: "#111114" }}>{o.code}</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{inr(o.total)} • {o.payment}</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{inr(o.total)} • {o.payment === "PayAfter" ? "Pay after service" : o.payment}</Text>
           </View>
           <Pressable
             onPress={() => {
               set({ orderSuccess: null, tab: "orders" });
-              onTrack();
+              if (!isSvc) onTrack();
             }}
-            style={{ marginTop: 12, width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 14, backgroundColor: "#E23744", paddingVertical: 14 }}
+            style={{ marginTop: 12, width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 14, backgroundColor: isSvc ? "#7C5CFF" : "#E23744", paddingVertical: 14 }}
           >
-            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>Track live</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{isSvc ? "View booking" : "Track live"}</Text>
             <ChevronRight size={16} color="#fff" />
           </Pressable>
           <Pressable
@@ -1210,10 +1216,14 @@ export function TrackingSheet() {
   const cancelled = o.status === "cancelled";
   const delivered = o.status === "delivered";
   const onway = o.status === "onway" || o.status === "ready";
+  const isSvc = o.kind === "service";
+  // Map sirf tab jab pro nikla ho — kal ke slot pe confirmation card dikhta hai.
+  const liveMap = !isSvc || ["onway", "ready", "delivered", "cancelled"].includes(o.status);
   const rider = o.rider ? seller.riders.find((r) => r.name === o.rider) : undefined;
   const cover = (o.items[0] as { image?: string } | undefined)?.image || STORES.find((s) => s.id === o.storeId)?.image || STORES[0].image;
   const etaLeft = cancelled || delivered ? 0 : Math.max(4, o.etaMins - (onway ? 8 : step >= 1 ? 4 : 0));
-  const headline = cancelled
+  const svcHeadline = trackingHeadline(o);
+  const headline = svcHeadline ?? (cancelled
     ? "Order cancelled"
     : delivered
       ? "Delivered. Enjoy your order"
@@ -1227,13 +1237,20 @@ export function TrackingSheet() {
               ? "Packed. Rider leaving the store"
               : o.rider
                 ? `${o.rider.split(" ")[0]} is on the way`
-                : "Out for delivery";
-  const steps = [
-    { t: "Placed", s: `Order sent • ${timeAgo(o.createdAt)}`, Icon: Receipt },
-    { t: "Preparing", s: o.status === "accepted" ? "Accepted — starting the kitchen" : o.status === "new" ? "Waiting for the shopkeeper" : "Being packed at the store", Icon: Package },
-    { t: "On the way", s: o.rider ? `${o.rider} • store’s own delivery` : "Store assigns their rider — no platform fleet", Icon: Bike },
-    { t: "Delivered", s: delivered ? "Handed over at your door" : "We’ll ask you to rate the store", Icon: Check },
-  ];
+                : "Out for delivery");
+  const steps = isSvc
+    ? [
+      { t: "Booked", s: `Slot: ${o.slotLabel ?? "—"} • ${timeAgo(o.createdAt)}`, Icon: Receipt },
+      { t: "Confirmed", s: o.status === "new" ? "Waiting for the pro to confirm" : `Locked for ${o.slotLabel ?? "your slot"}`, Icon: Package },
+      { t: "Service day", s: onway ? (o.rider ? `${o.rider} is on the way` : "Pro is on the way") : o.status === "ready" ? "Pro has reached" : "Map pro ke nikalne pe live hoga", Icon: Bike },
+      { t: "Done", s: delivered ? (o.payStatus === "pending" ? "Completed • payment due" : "Completed • paid") : "We’ll ask you to rate the pro", Icon: Check },
+    ]
+    : [
+      { t: "Placed", s: `Order sent • ${timeAgo(o.createdAt)}`, Icon: Receipt },
+      { t: "Preparing", s: o.status === "accepted" ? "Accepted — starting the kitchen" : o.status === "new" ? "Waiting for the shopkeeper" : "Being packed at the store", Icon: Package },
+      { t: "On the way", s: o.rider ? `${o.rider} • store’s own delivery` : "Store assigns their rider — no platform fleet", Icon: Bike },
+      { t: "Delivered", s: delivered ? "Handed over at your door" : "We’ll ask you to rate the store", Icon: Check },
+    ];
   const progress = cancelled ? 6 : delivered ? 100 : Math.min(92, 12 + (step + 1) * 22);
   const riderT = cancelled ? 0 : delivered ? 1 : step <= 0 ? 0.04 : step === 1 ? 0.18 : 0.62;
   const storeLoc = getStoreLocation(o.storeId);
@@ -1247,6 +1264,7 @@ export function TrackingSheet() {
   return (
     <Sheet onClose={onClose} zIndex={50} top={48} maxH="100%" radius={28}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+        {liveMap ? (
         <View style={{ position: "relative", height: 258, backgroundColor: "#E8EDF2" }}>
           <MapView
             style={{ width: "100%", height: "100%" }}
@@ -1307,7 +1325,7 @@ export function TrackingSheet() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: cancelled ? "#E23744" : delivered ? "#0C831F" : "#fff" }}>
               <LiveDot color={cancelled ? "#fff" : delivered ? "#D8F34E" : "#0C831F"} />
               <Text style={{ fontFamily: F.extra, fontSize: 10, color: cancelled || delivered ? "#fff" : "#111114" }}>
-                {cancelled ? "CANCELLED" : delivered ? "DELIVERED" : statusLabel(o.status).toUpperCase()}
+                {isSvc ? serviceStatusPill(o.status) : cancelled ? "CANCELLED" : delivered ? "DELIVERED" : statusLabel(o.status).toUpperCase()}
               </Text>
             </View>
             <Pressable
@@ -1322,11 +1340,35 @@ export function TrackingSheet() {
             </Pressable>
           </View>
         </View>
+        ) : (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <View style={{ borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.8, color: "#7C5CFF" }}>BOOKING</Text>
+                </View>
+                <View style={{ borderRadius: 999, backgroundColor: o.status === "new" ? "#FEF3C7" : "#0C831F", paddingHorizontal: 8, paddingVertical: 3 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: o.status === "new" ? "#92400E" : "#fff" }}>{serviceStatusPill(o.status)}</Text>
+                </View>
+              </View>
+              <Pressable onPress={onClose} style={{ height: 32, width: 32, borderRadius: 16, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>✕</Text>
+              </Pressable>
+            </View>
+            <Text style={{ marginTop: 10, fontFamily: F.extra, fontSize: 17, letterSpacing: -0.3, color: colors.ink }}>{headline}</Text>
+            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 14, color: "#7C5CFF" }}>🗓 {o.slotLabel ?? "Slot"}</Text>
+            <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>
+              {o.storeName} • {inr(o.total)}{o.payStatus === "pending" ? " • pay after service" : " • paid"} • ⏱ ~{o.etaMins} min service
+            </Text>
+          </View>
+        </View>
+        )}
 
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{o.distanceKm} km • self delivery</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{isSvc ? `🗓 ${o.slotLabel ?? "Slot booked"}` : `${o.distanceKm} km • self delivery`}</Text>
               <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink2 }}>{o.code}</Text>
             </View>
             <View style={{ height: 6, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
@@ -1343,7 +1385,24 @@ export function TrackingSheet() {
             </View>
           )}
 
-          {!cancelled && !delivered && o.otp && (
+          {isSvc && !cancelled && !delivered && (o.status === "new" || o.status === "accepted") && (
+            <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>Slot change karna hai?</Text>
+              <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>Free reschedule — cancel karke naya slot book karo. Koi charge nahi.</Text>
+              <Pressable
+                onPress={() => {
+                  useOSB.getState().updateOrderStatus(o.id, "cancelled");
+                  blip(420);
+                  onClose();
+                }}
+                style={{ marginTop: 10, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 12, alignItems: "center" }}
+              >
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#E23744" }}>Cancel booking</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!isSvc && !cancelled && !delivered && o.otp && (
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: "#111117", padding: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <ShieldCheck size={12} color="#F8CB46" />
@@ -1374,7 +1433,7 @@ export function TrackingSheet() {
             </View>
           ) : null}
 
-          {!cancelled && !delivered && (o.status === "onway" || o.status === "ready") && (
+          {!isSvc && !cancelled && !delivered && (o.status === "onway" || o.status === "ready") && (
             <Pressable
               onPress={() => {
                 useOSB.getState().customerConfirmDelivery(o.id);
@@ -1395,7 +1454,9 @@ export function TrackingSheet() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{o.storeName}</Text>
                 <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>
-                  {o.rider ? `${o.rider} • ${rider?.vehicle ?? "Store rider"}` : "Store delivers with its own staff"}
+                  {isSvc
+                    ? (o.rider ? `${o.rider} • your pro` : "Verified pro visits your home")
+                    : (o.rider ? `${o.rider} • ${rider?.vehicle ?? "Store rider"}` : "Store delivers with its own staff")}
                 </Text>
               </View>
               <Pressable onPress={() => Linking.openURL(`tel:${rider?.phone || seller.phone || ""}`).catch(() => {})} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#0C831F" }}>
@@ -1623,6 +1684,7 @@ function ShellBody() {
       {authed && <BottomNav />}
       <TrackingSheet />
       {storeId ? <StoreSheet id={storeId} onClose={() => set({ storeId: null })} /> : null}
+      <BookingSheet />
       <CartSheet />
       <CheckoutSheet />
       <SuccessOverlay onTrack={() => track(useOSB.getState().orders[0]?.id ?? null)} />

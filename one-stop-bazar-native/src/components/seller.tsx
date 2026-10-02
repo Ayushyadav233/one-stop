@@ -86,6 +86,15 @@ interface FormCfg {
   cover: string;
 }
 
+/** Home-service provider? (categories me `service` hai) — food/grocery wale fields chhupege. */
+export function isServiceSeller(cats: string[]): boolean {
+  return cats.includes("service");
+}
+/** Sirf home-service bechta hai (food/grocery bilkul nahi)? */
+export function isServiceOnlySeller(cats: string[]): boolean {
+  return cats.length > 0 && cats.every((k) => k === "service");
+}
+
 function formConfig(label: string, sellerCats: string[]): FormCfg {
   const def =
     CATEGORIES.find((c) => c.t === label || c.subs.includes(label)) ??
@@ -113,7 +122,7 @@ function formConfig(label: string, sellerCats: string[]): FormCfg {
     sports: { placeholder: "e.g. PVC Dumbbell Set (20kg)", desc: "Weight, material, grip, in-box items…", units: ["1 pc", "1 set", "2 kg"], stock: "10", showVeg: false },
     auto: { placeholder: "e.g. Magnetic Car Phone Mount", desc: "Compatibility, brand, warranty…", units: ["1 pc", "1 kit", "Set of 2"], stock: "20", showVeg: false },
     household: { placeholder: "e.g. Liquid Detergent Family Pack 2L", desc: "Brand, volume, machine type…", units: ["1 L", "2 L", "1 pack", "3 pcs"], stock: "40", showVeg: false },
-    service: { placeholder: "e.g. 60-min Signature Facial", desc: "Duration, what’s included, requirements…", units: ["30 min", "60 min", "1 visit"], stock: "99", showVeg: false },
+    service: { placeholder: "e.g. 60-min Signature Facial", desc: "Duration, what’s included, requirements…", units: ["30 min", "45 min", "60 min", "90 min", "1 visit", "Full day"], stock: "8", showVeg: false },
   };
   const base = byK[def.k] ?? { placeholder: "e.g. Product name", desc: "Describe material, size & key details…", units: ["1 pc", "1 pack", "1 set"], stock: "20", showVeg: false };
   return { ...base, pool: pool.length ? pool : def.img ? [def.img] : [], cover: def.img };
@@ -308,11 +317,14 @@ function StoreCategories() {
     setSeller({ categories: has ? seller.categories.filter((x) => x !== k) : [...seller.categories, k] });
     blip(has ? 420 : 760);
   };
+  const svcMode = isServiceSeller(seller.categories);
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <View style={{ borderRadius: 16, backgroundColor: "rgba(21,115,255,.1)", padding: 14 }}>
-        <Text style={{ fontFamily: F.semi, fontSize: 12, lineHeight: 18, color: "#0B5BD3" }}>
-          Your store appears under <Text style={{ fontFamily: F.extra }}>{seller.categories.length} categor{seller.categories.length === 1 ? "y" : "ies"}</Text>. Pick everything you sell — customers find you through each one.
+      <View style={{ borderRadius: 16, backgroundColor: svcMode ? "rgba(124,92,255,.12)" : "rgba(21,115,255,.1)", padding: 14 }}>
+        <Text style={{ fontFamily: F.semi, fontSize: 12, lineHeight: 18, color: svcMode ? "#5B3DF0" : "#0B5BD3" }}>
+          {svcMode
+            ? <>🛠️ <Text style={{ fontFamily: F.extra }}>Service mode ON</Text> — catalog me slots/duration, visit fee aur bookings dikhenge. Food/grocery wale fields (stock piles, veg, delivery) chhupe rahenge.</>
+            : <>Your store appears under <Text style={{ fontFamily: F.extra }}>{seller.categories.length} categor{seller.categories.length === 1 ? "y" : "ies"}</Text>. Pick everything you sell — customers find you through each one.</>}
         </Text>
       </View>
       <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -437,6 +449,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
   const [etaMins, setEtaMins] = useState(initialEta);
   const off = mrp && price && +mrp > +price ? Math.round(((+mrp - +price) / +mrp) * 100) : 0;
   const activeDef = CATEGORIES.find((c) => c.t === cat || c.subs.includes(cat)) ?? primaryDef;
+  const isSvc = activeDef.k === "service";
 
   const chooseSub = (s: string) => {
     setCat(s);
@@ -472,7 +485,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 12 }}>
           <View style={{ alignSelf: "center", height: 6, width: 48, borderRadius: 999, backgroundColor: "rgba(0,0,0,.15)" }} />
           <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 18, letterSpacing: -0.3, color: colors.ink }}>{p ? "Edit product" : "New product"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 18, letterSpacing: -0.3, color: colors.ink }}>{p ? (isSvc ? "Edit service" : "Edit product") : (isSvc ? "New service 🛠️" : "New product")}</Text>
             <Pressable onPress={onClose} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
               <X size={17} color={colors.ink} />
             </Pressable>
@@ -491,7 +504,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
               <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>
                 ₹{price || "0"} {mrp ? <Text style={{ fontFamily: F.medium, color: colors.ink3, textDecorationLine: "line-through" }}>₹{mrp}</Text> : null}
               </Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{cat} • {unit} • {stock || 0} in stock</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{cat} • {unit} • {isSvc ? `${stock || 0} slots/day` : `${stock || 0} in stock`}</Text>
             </View>
           </View>
           <View style={{ marginTop: 12, gap: 10 }}>
@@ -507,7 +520,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
                 </ScrollView>
               </View>
             )}
-            <Field label="Product name *">
+            <Field label={isSvc ? "Service name *" : "Product name *"}>
               <TextInput value={name} onChangeText={setName} placeholder={cfg.placeholder} placeholderTextColor={colors.ink3} style={{ fontFamily: F.semi, fontSize: 13.5, color: colors.ink, paddingVertical: 4 }} />
             </Field>
             <Field label="Description">
@@ -515,7 +528,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
             </Field>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <View style={{ flex: 1 }}>
-                <Field label="Price ₹ *">
+                <Field label={isSvc ? "Price/visit ₹ *" : "Price ₹ *"}>
                   <TextInput keyboardType="numeric" value={price} onChangeText={(t) => setPrice(t.replace(/\D/g, ""))} placeholder="0" placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
                 </Field>
               </View>
@@ -525,12 +538,17 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
                 </Field>
               </View>
               <View style={{ flex: 1 }}>
-                <Field label={cfg.showVeg ? "Stock" : "Quantity"}>
+                <Field label={isSvc ? "Slots / day" : cfg.showVeg ? "Stock" : "Quantity"}>
                   <TextInput keyboardType="numeric" value={stock} onChangeText={(t) => setStock(t.replace(/\D/g, ""))} placeholder={cfg.stock} placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
                 </Field>
               </View>
             </View>
-            <Field label="Unit / variant">
+            {isSvc && (
+              <View style={{ borderRadius: 12, backgroundColor: "rgba(124,92,255,.1)", padding: 10 }}>
+                <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#7C5CFF" }}>🛠️ Service mode — quantity = din ke booking slots (jaada stock nahi). Duration neeche se chuno.</Text>
+              </View>
+            )}
+            <Field label={isSvc ? "Duration / visit" : "Unit / variant"}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 4, gap: 6 }}>
                 {cfg.units.map((u) => (
                   <Pressable key={u} onPress={() => setUnit(u)} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: unit === u ? "#0C831F" : colors.chip }}>
@@ -540,7 +558,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
                 <TextInput value={unit} onChangeText={setUnit} placeholder="Custom" placeholderTextColor={colors.ink3} style={{ width: 80, borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 12, paddingVertical: 6, fontFamily: F.bold, fontSize: 11.5, color: colors.ink }} />
               </ScrollView>
             </Field>
-            <Field label="Ready in (mins) — customer sees this as delivery time">
+            <Field label={isSvc ? "Service time (mins) — customer sees visit duration" : "Ready in (mins) — customer sees this as delivery time"}>
               <TextInput keyboardType="numeric" value={etaMins} onChangeText={(t) => setEtaMins(t.replace(/\D/g, "").slice(0, 4))} placeholder={String(seller.avgTime || 30)} placeholderTextColor={colors.ink3} style={{ fontFamily: F.bold, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
             </Field>
             <View>
@@ -614,7 +632,7 @@ function ProductSheet({ p, onClose }: { p: Product | null; onClose: () => void }
             </View>
           </View>
           <Pressable onPress={save} style={{ marginTop: 16, borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 16, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{p ? "Save changes" : "List product live"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{p ? "Save changes" : isSvc ? "List service live 🛠️" : "List product live"}</Text>
           </Pressable>
         </ScrollView>
       </Animated.View>
@@ -1477,23 +1495,30 @@ export function SellerOnboarding() {
             <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {CATEGORIES.map((c) => {
                 const on = seller.categories.includes(c.k);
+                const hot = c.k === "service";
                 return (
+                  <View key={c.k} style={{ width: "48%", position: "relative" }}>
                   <Pressable
-                    key={c.k}
                     onPress={() => {
                       const nextCats = on ? seller.categories.filter((x) => x !== c.k) : [...seller.categories, c.k];
                       const prim = CATEGORIES.find((x) => x.k === nextCats[0]);
                       setSeller({ categories: nextCats, coverImage: prim?.img || "", tagline: prim?.sub || seller.tagline });
                       setErr("");
                     }}
-                    style={{ width: "48%", flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: on ? 2 : 1, borderColor: on ? "#0C831F" : colors.line, padding: 10 }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: on ? 2 : 1, borderColor: on ? (hot ? "#7C5CFF" : "#0C831F") : colors.line, padding: 10 }}
                   >
                     <View style={{ height: 36, width: 36, borderRadius: 8, overflow: "hidden", backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                       {c.img ? <Img src={c.img} style={{ width: "100%", height: "100%" }} /> : <Text style={{ fontSize: 16 }}>{c.emoji}</Text>}
                     </View>
                     <Text style={{ flex: 1, fontFamily: F.extra, fontSize: 12, lineHeight: 15, color: colors.ink }}>{c.t}</Text>
-                    {on && <Check size={14} strokeWidth={3} color="#0C831F" />}
+                    {on && <Check size={14} strokeWidth={3} color={hot ? "#7C5CFF" : "#0C831F"} />}
                   </Pressable>
+                  {hot && (
+                    <View style={{ position: "absolute", top: -8, left: 8, borderRadius: 6, backgroundColor: "#7C5CFF", paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Text style={{ fontFamily: F.extra, fontSize: 8, letterSpacing: 0.8, color: "#fff" }}>MOST BOOKED</Text>
+                    </View>
+                  )}
+                  </View>
                 );
               })}
             </View>
@@ -1502,22 +1527,27 @@ export function SellerOnboarding() {
             </Text>
           </View>
         )}
-        {step === 2 && (
+        {step === 2 && (() => {
+          const svcOnly = isServiceOnlySeller(seller.categories);
+          return (
           <View>
-            <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>You deliver it{"\n"}yourself 🛵</Text>
-            <View style={{ marginTop: 8, borderRadius: 14, backgroundColor: "rgba(248,203,70,.25)", padding: 12 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>{svcOnly ? "You visit the\ncustomer 🛠️" : "You deliver it\n yourself 🛵"}</Text>
+            <View style={{ marginTop: 8, borderRadius: 14, backgroundColor: svcOnly ? "rgba(124,92,255,.15)" : "rgba(248,203,70,.25)", padding: 12 }}>
               <Text style={{ fontFamily: F.semi, fontSize: 12, lineHeight: 18, color: colors.ink }}>
-                One Stop Bazar has <Text style={{ fontFamily: F.extra }}>no delivery fleet</Text>. Orders come to you — your staff delivers. Set how far your store shows LIVE:
+                {svcOnly
+                  ? <>Bookings come to you — <Text style={{ fontFamily: F.extra }}>you visit the customer</Text>. Set how far your service shows LIVE:</>
+                  : <>One Stop Bazar has <Text style={{ fontFamily: F.extra }}>no delivery fleet</Text>. Orders come to you — your staff delivers. Set how far your store shows LIVE:</>}
               </Text>
             </View>
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16, alignItems: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 34, color: "#0C831F" }}>{seller.radiusKm} km</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 34, color: svcOnly ? "#7C5CFF" : "#0C831F" }}>{seller.radiusKm} km</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{svcOnly ? "service area" : "delivery area"}</Text>
               <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 12, width: "100%" }}>
                 <Pressable onPress={() => setSeller({ radiusKm: Math.max(1, seller.radiusKm - 1) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 18, color: colors.ink }}>−</Text>
                 </Pressable>
                 <View style={{ flex: 1, height: 8, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
-                  <View style={{ height: "100%", backgroundColor: "#0C831F", width: `${((seller.radiusKm - 1) / 14) * 100}%` }} />
+                  <View style={{ height: "100%", backgroundColor: svcOnly ? "#7C5CFF" : "#0C831F", width: `${((seller.radiusKm - 1) / 14) * 100}%` }} />
                 </View>
                 <Pressable onPress={() => setSeller({ radiusKm: Math.min(15, seller.radiusKm + 1) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 18, color: colors.ink }}>+</Text>
@@ -1525,12 +1555,12 @@ export function SellerOnboarding() {
               </View>
               <View style={{ marginTop: 8, flexDirection: "row", gap: 8, width: "100%" }}>
                 <View style={{ flex: 1 }}>
-                  <Field label="Delivery fee ₹">
+                  <Field label={svcOnly ? "Visit fee ₹" : "Delivery fee ₹"}>
                     <TextInput keyboardType="numeric" value={String(seller.deliveryFee)} onChangeText={(t) => setSeller({ deliveryFee: +t.replace(/\D/g, "") || 0 })} style={{ fontFamily: F.bold, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="Free above ₹">
+                  <Field label={svcOnly ? "Free visit above ₹" : "Free above ₹"}>
                     <TextInput keyboardType="numeric" value={String(seller.freeAbove)} onChangeText={(t) => setSeller({ freeAbove: +t.replace(/\D/g, "") || 0 })} style={{ fontFamily: F.bold, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
                   </Field>
                 </View>
@@ -1538,23 +1568,31 @@ export function SellerOnboarding() {
               <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8, width: "100%", borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10 }}>
                 <Text style={{ fontSize: 18 }}>⏱️</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>Avg delivery time</Text>
-                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>Customers see this on your store & products</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{svcOnly ? "Avg service time" : "Avg delivery time"}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>{svcOnly ? "Customers see visit duration on your services" : "Customers see this on your store & products"}</Text>
                 </View>
                 <Pressable onPress={() => setSeller({ avgTime: Math.max(5, seller.avgTime - 5) })} style={{ height: 34, width: 34, borderRadius: 17, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 16, color: colors.ink }}>−</Text>
                 </Pressable>
                 <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: "center" }}>{seller.avgTime} min</Text>
-                <Pressable onPress={() => setSeller({ avgTime: Math.min(180, seller.avgTime + 5) })} style={{ height: 34, width: 34, borderRadius: 17, backgroundColor: "#0C831F", alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={() => setSeller({ avgTime: Math.min(180, seller.avgTime + 5) })} style={{ height: 34, width: 34, borderRadius: 17, backgroundColor: svcOnly ? "#7C5CFF" : "#0C831F", alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>+</Text>
                 </Pressable>
               </View>
             </View>
           </View>
-        )}
-        {step === 3 && (
+          );
+        })()}
+        {step === 3 && (() => {
+          const svcOnly = isServiceOnlySeller(seller.categories);
+          const days = ["S", "M", "T", "W", "T", "F", "S"];
+          const wd = seller.workDays?.length ? seller.workDays : [0, 1, 2, 3, 4, 5, 6];
+          return (
           <View>
-            <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>When are you open? ⏰</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>{svcOnly ? "Service hours 🛠️" : "When are you open? ⏰"}</Text>
+            {svcOnly && (
+              <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>Customers inhi hours me slots book karenge.</Text>
+            )}
             <View style={{ marginTop: 16, flexDirection: "row", gap: 8 }}>
               <View style={{ flex: 1 }}>
                 <Field label="Opens">
@@ -1567,6 +1605,21 @@ export function SellerOnboarding() {
                 </Field>
               </View>
             </View>
+            {svcOnly && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ marginBottom: 6, fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.2, color: colors.ink3 }}>WORKING DAYS</Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {days.map((d, i) => {
+                    const on = wd.includes(i);
+                    return (
+                      <Pressable key={i} onPress={() => { setSeller({ workDays: on ? wd.filter((x) => x !== i) : [...wd, i].sort() }); blip(on ? 420 : 760); }} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: on ? "#7C5CFF" : colors.card, borderWidth: 1, borderColor: colors.line }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 12, color: on ? "#fff" : colors.ink3 }}>{d}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
             <View style={{ marginTop: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Clock size={15} color={colors.ink} />
@@ -1576,7 +1629,8 @@ export function SellerOnboarding() {
               <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>Change per-day hours & holidays anytime from Manage.</Text>
             </View>
           </View>
-        )}
+          );
+        })()}
         {step === 4 && (
           <View>
             <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>Pick your plan 💳</Text>

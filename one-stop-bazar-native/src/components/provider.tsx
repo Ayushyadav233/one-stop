@@ -420,9 +420,14 @@ export function ProviderOrders() {
                   <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <View style={{ borderRadius: 6, backgroundColor: o.payment === "COD" ? "rgba(251,191,36,.25)" : "rgba(12,131,31,.12)", paddingHorizontal: 6, paddingVertical: 2 }}>
                       <Text style={{ fontFamily: F.extra, fontSize: 10, color: o.payment === "COD" ? "#92400E" : "#0C831F" }}>
-                        {o.payment}{o.payment === "COD" ? " • collect cash" : " • prepaid"}
+                        {o.payment === "PayAfter" ? "PayAfter • collect after service" : `${o.payment}${o.payment === "COD" ? " • collect cash" : " • prepaid"}`}
                       </Text>
                     </View>
+                    {o.kind === "service" && !!o.slotLabel && (
+                      <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#7C5CFF" }}>🗓 {o.slotLabel}</Text>
+                      </View>
+                    )}
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 6, backgroundColor: outOfRange ? "rgba(226,55,68,.12)" : "rgba(0,0,0,.06)", paddingHorizontal: 6, paddingVertical: 2 }}>
                       <MapPin size={9} color={outOfRange ? "#E23744" : colors.ink2} />
                       <Text style={{ fontFamily: F.extra, fontSize: 10, color: outOfRange ? "#E23744" : colors.ink2 }}>
@@ -459,7 +464,7 @@ export function ProviderOrders() {
                         <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink2 }}>{inr(o.subtotal)}</Text>
                       </View>
                       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                        <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>Your delivery fee</Text>
+                        <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{o.kind === "service" ? "Visit fee" : "Your delivery fee"}</Text>
                         <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink2 }}>{o.fee === 0 ? "FREE" : inr(o.fee)}</Text>
                       </View>
                       {o.discount > 0 && (
@@ -537,6 +542,70 @@ function OrderActions({ o }: { o: SellerOrder }) {
   const call = () => blip(660);
   const btnBase = { flex: 1, flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6, borderRadius: 12, paddingVertical: 12 };
   const btnLabel = (c: string) => ({ fontFamily: F.extra, fontSize: 12.5, color: c });
+  // Service bookings: confirm → hold → out for service → reached → done.
+  // `preparing` skip, rider-assign skip (pro khud travel karta hai), `ready` = reached.
+  if (o.kind === "service") {
+    if (o.status === "new") return (
+      <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
+        <Pressable onPress={() => go("cancelled", 400)} style={[btnBase, { backgroundColor: colors.chip }]}>
+          <X size={15} color="#E23744" />
+          <Text style={btnLabel("#E23744")}>Reject</Text>
+        </Pressable>
+        <Pressable onPress={call} style={[btnBase, { backgroundColor: colors.chip }]}>
+          <Phone size={14} color={colors.ink} />
+          <Text style={btnLabel(colors.ink)}>Call</Text>
+        </Pressable>
+        <Pressable onPress={() => go("accepted")} style={[btnBase, { backgroundColor: "#7C5CFF" }]}>
+          <Check size={15} color="#fff" />
+          <Text style={btnLabel("#fff")}>Confirm booking</Text>
+        </Pressable>
+      </View>
+    );
+    if (o.status === "accepted") return (
+      <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
+        <Pressable onPress={call} style={[btnBase, { backgroundColor: colors.chip }]}>
+          <Phone size={14} color={colors.ink} />
+          <Text style={btnLabel(colors.ink)}>Call</Text>
+        </Pressable>
+        <Pressable onPress={() => go("onway")} style={[btnBase, { flex: 2, backgroundColor: "#E8830C" }]}>
+          <Text style={btnLabel("#fff")}>Out for service 🛠️</Text>
+          <ChevronRight size={15} color="#fff" />
+        </Pressable>
+      </View>
+    );
+    if (o.status === "onway") return (
+      <View style={{ marginTop: 10 }}>
+        {o.payment === "PayAfter" && (
+          <View style={{ marginBottom: 8, borderRadius: 10, backgroundColor: "rgba(251,191,36,.2)", padding: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#92400E" }}>💵 Service ke baad {inr(o.total)} collect karna</Text>
+          </View>
+        )}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable onPress={call} style={[btnBase, { backgroundColor: colors.chip }]}>
+            <Phone size={14} color={colors.ink} />
+            <Text style={btnLabel(colors.ink)}>Call</Text>
+          </Pressable>
+          <Pressable onPress={() => go("ready")} style={[btnBase, { flex: 2, backgroundColor: "#1573FF" }]}>
+            <Check size={15} color="#fff" />
+            <Text style={btnLabel("#fff")}>Mark reached ✓</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+    if (o.status === "ready") return (
+      <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
+        <Pressable onPress={call} style={[btnBase, { backgroundColor: colors.chip }]}>
+          <Phone size={14} color={colors.ink} />
+          <Text style={btnLabel(colors.ink)}>Call</Text>
+        </Pressable>
+        <Pressable onPress={() => go("delivered", 990)} style={[btnBase, { flex: 2, backgroundColor: "#0C831F" }]}>
+          <Check size={15} color="#fff" />
+          <Text style={btnLabel("#fff")}>Complete service</Text>
+        </Pressable>
+      </View>
+    );
+    return null;
+  }
   if (o.status === "new") return (
     <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
       <Pressable onPress={() => go("cancelled", 400)} style={[btnBase, { backgroundColor: colors.chip }]}>
