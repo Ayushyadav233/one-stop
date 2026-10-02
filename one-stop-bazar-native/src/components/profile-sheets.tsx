@@ -27,9 +27,9 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { useT } from "@/lib/i18n";
 import { F } from "./ui";
 
-/** Support number — real helpline se badlo (1 jagah, sab buttons yahi use karte hain). */
-export const SUPPORT_PHONE = "18001234567";
-export const SUPPORT_WA = `https://wa.me/91${SUPPORT_PHONE}?text=${encodeURIComponent("Hi One Stop Bazar, mujhe help chahiye")}`;
+/** Support number — single source ab @/lib/contact (real helpline se badlo). */
+import { SUPPORT_PHONE, SUPPORT_WA } from "@/lib/contact";
+export { SUPPORT_PHONE, SUPPORT_WA };
 
 /* ── shared sheet chrome ── */
 export function PSheet({ onClose, children, zIndex = 60 }: { onClose: () => void; children: React.ReactNode; zIndex?: number }) {

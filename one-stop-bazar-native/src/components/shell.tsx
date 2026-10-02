@@ -12,7 +12,6 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import {
   ActivityIndicator,
   BackHandler,
-  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -74,7 +73,8 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { COUPONS, STORES, inr } from "@/lib/data";
-import { blip, useOSB, type LiveOrder } from "@/lib/osb-store";
+import { blip, useMarketplace, useOSB, type LiveOrder } from "@/lib/osb-store";
+import { placeCall, resolveStoreCall } from "@/lib/contact";
 import { tFor } from "@/lib/i18n";
 import { popBackCloser, useSheetBackCloser } from "@/lib/back";
 import {
@@ -94,6 +94,8 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, LiveDot } from "./ui";
 import { CustomerHome, OrdersTab, ProfileTab, SavedTab, SearchTab, StoreSheet } from "./customer";
 import { BookingSheet } from "./service-booking";
+import { ChatSheet } from "./order-chat";
+import { watchChatPushes } from "@/lib/push";
 import { CategoriesTab } from "./categories";
 import { ProviderDash, ProviderMore, ProviderOrders } from "./provider";
 import { SellerCatalog, SellerMarketing, SellerOnboarding } from "./seller";
@@ -1206,6 +1208,9 @@ export function TrackingSheet() {
   const orders = useOSB((s) => s.orders);
   const seller = useOSB((s) => s.seller);
   const address = useOSB((s) => s.address);
+  const openChat = useOSB((s) => s.openChat);
+  const chatUnread = useOSB((s) => s.chatUnread);
+  const { stores } = useMarketplace();
   const o = orders.find((x) => x.id === id) ?? orders[0];
   // Hook early-return se pehle (hooks order fixed rahe).
   useSheetBackCloser(!!(id && o), onClose);
@@ -1459,12 +1464,29 @@ export function TrackingSheet() {
                     : (o.rider ? `${o.rider} • ${rider?.vehicle ?? "Store rider"}` : "Store delivers with its own staff")}
                 </Text>
               </View>
-              <Pressable onPress={() => Linking.openURL(`tel:${rider?.phone || seller.phone || ""}`).catch(() => {})} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#0C831F" }}>
+              <Pressable
+                onPress={() => {
+                  const st = stores.find((x) => x.id === o.storeId);
+                  void placeCall(
+                    resolveStoreCall({
+                      storePhone: rider?.phone || st?.phone,
+                      isOwnShop: o.storeId === (seller.storeId || "mine"),
+                      sellerPhone: seller.phone,
+                      orderStatus: o.status,
+                    }),
+                    o.storeName
+                  );
+                }}
+                style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#0C831F" }}
+              >
                 <Phone size={16} color="#fff" />
               </Pressable>
-              <View style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.chip }}>
+              <Pressable onPress={() => openChat(o.id, "customer")} style={{ position: "relative", height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.chip }}>
                 <MessageCircle size={16} color={colors.ink} />
-              </View>
+                {chatUnread[o.id] && (
+                  <View style={{ position: "absolute", right: 8, top: 8, height: 10, width: 10, borderRadius: 5, backgroundColor: "#E23744", borderWidth: 1.5, borderColor: colors.card }} />
+                )}
+              </Pressable>
             </View>
           </View>
 
@@ -1621,6 +1643,10 @@ function ShellBody() {
     const t = setInterval(pull, 6000);
     return () => clearInterval(t);
   }, [hydrateOrders]);
+  // Chat pushes → unread badge (fail-soft, kabhi crash nahi).
+  useEffect(() => {
+    return watchChatPushes((orderId) => useOSB.getState().pushChatUnread(orderId));
+  }, []);
 
   // Android hardware back: overlay → tab → double-press exit (kabhi seedha exit nahi).
   useEffect(() => {
@@ -1685,6 +1711,7 @@ function ShellBody() {
       <TrackingSheet />
       {storeId ? <StoreSheet id={storeId} onClose={() => set({ storeId: null })} /> : null}
       <BookingSheet />
+      <ChatSheet />
       <CartSheet />
       <CheckoutSheet />
       <SuccessOverlay onTrack={() => track(useOSB.getState().orders[0]?.id ?? null)} />

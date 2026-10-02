@@ -4,11 +4,11 @@
  * - framer-motion enter/exit → Animated FadeIn entering (plays on mount).
  * - Revenue hero grain overlay skipped (visual-only, no RN equivalent).
  * - Tables/none — orders render as stacked card rows (same as web).
- * - Call buttons blip only (web `call` helper also only blips).
+ * - Call buttons dial the customer via tel: (10-digit check + alert fallback).
  * - ProviderMore renders SellerManage from ./seller (lands in parallel).
  */
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import {
   ArrowUpRight,
@@ -20,6 +20,7 @@ import {
   Clock,
   Eye,
   MapPin,
+  MessageCircle,
   Phone,
   Plus,
   Power,
@@ -315,6 +316,8 @@ const STAGE_META: Record<SellerOrderStatus, { t: string; c: string }> = {
 export function ProviderOrders() {
   const { colors } = useTheme();
   const { sellerOrders, seller } = useOSB();
+  const openChat = useOSB((s) => s.openChat);
+  const chatUnread = useOSB((s) => s.chatUnread);
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -481,6 +484,31 @@ export function ProviderOrders() {
                     <View style={{ marginTop: 10, borderRadius: 12, backgroundColor: colors.chip, padding: 12 }}>
                       <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: colors.ink }}>{o.customer} • {o.phone}</Text>
                       <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{o.address}</Text>
+                      <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
+                        <Pressable
+                          onPress={() => {
+                            const d = o.phone.replace(/\D/g, "").slice(-10);
+                            if (d.length !== 10) {
+                              Alert.alert("Number nahi mila", "Customer ka valid number order me nahi hai.");
+                              return;
+                            }
+                            blip(760);
+                            Linking.openURL(`tel:${d}`).catch(() => Alert.alert("Call nahi lagi", d));
+                          }}
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, backgroundColor: "#0C831F", paddingVertical: 10 }}
+                        >
+                          <Phone size={14} color="#fff" />
+                          <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>Call customer</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openChat(o.id, "store")}
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 10 }}
+                        >
+                          <MessageCircle size={14} color={colors.ink} />
+                          <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Chat</Text>
+                          {chatUnread[o.id] && <View style={{ height: 8, width: 8, borderRadius: 4, backgroundColor: "#E23744" }} />}
+                        </Pressable>
+                      </View>
                     </View>
                     {(o.status === "ready" || o.status === "onway") && (
                       <View style={{ marginTop: 8 }}>
@@ -539,7 +567,15 @@ function OrderActions({ o }: { o: SellerOrder }) {
   const { colors } = useTheme();
   const { updateOrderStatus, assignRider, seller } = useOSB();
   const go = (s: SellerOrderStatus, f = 880) => { updateOrderStatus(o.id, s); blip(f, 0.12); };
-  const call = () => blip(660);
+  const call = () => {
+    const d = o.phone.replace(/\D/g, "").slice(-10);
+    if (d.length !== 10) {
+      Alert.alert("Number nahi mila", "Customer ka valid number order me nahi hai.");
+      return;
+    }
+    blip(760);
+    Linking.openURL(`tel:${d}`).catch(() => Alert.alert("Call nahi lagi", d));
+  };
   const btnBase = { flex: 1, flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6, borderRadius: 12, paddingVertical: 12 };
   const btnLabel = (c: string) => ({ fontFamily: F.extra, fontSize: 12.5, color: c });
   // Service bookings: confirm → hold → out for service → reached → done.

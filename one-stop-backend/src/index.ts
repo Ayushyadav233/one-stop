@@ -16,6 +16,7 @@ import { reviewsRoute } from "./routes/reviews.js";
 import { khataRoute } from "./routes/khata.js";
 import { pushRoute } from "./routes/push.js";
 import { walletRoute } from "./routes/wallet.js";
+import { chatRoute } from "./routes/chat.js";
 import { adminRoute } from "./routes/admin.js";
 import { homeRoute } from "./routes/home.js";
 import { logError, logInfo, logOk, logWarn, requestLogger } from "./lib/logger.js";
@@ -43,6 +44,7 @@ app.route("/api/reviews", reviewsRoute);
 app.route("/api/khata", khataRoute);
 app.route("/api/push-tokens", pushRoute);
 app.route("/api/wallet", walletRoute);
+app.route("/api/chat", chatRoute);
 app.route("/api/admin", adminRoute);
 app.route("/api/home", homeRoute);
 
@@ -91,7 +93,8 @@ function printBanner() {
   logInfo(`sms      : ${msg91 ? "MSG91 configured" : "dev-mock (no MSG91 keys)"}`);
   logInfo("routes   : /, /api/health, /api/orders, /api/products, /api/stores, /api/seed,");
   logInfo("           /api/auth, /api/users, /api/seller, /api/coupons, /api/category-requests,");
-  logInfo("           /api/reviews, /api/khata, /api/push-tokens, /api/wallet, /api/admin, /api/home");
+  logInfo("           /api/reviews, /api/khata, /api/push-tokens, /api/wallet, /api/admin, /api/home,");
+  logInfo("           /api/chat");
   console.log("──────────────────────────────────────────────");
 }
 

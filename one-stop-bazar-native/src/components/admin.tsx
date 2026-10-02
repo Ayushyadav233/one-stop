@@ -1022,6 +1022,26 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
 
       <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
         <SectionHead title="Categories" sub="Toggle = customer app me turant hide/show" />
+        <Pressable
+          onPress={() => {
+            Alert.alert("Reset catalog data?", "Synced backend catalog + hidden toggles clear honge. Static demo data wapas aayega, agla sync fresh hoga.", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Reset",
+                style: "destructive",
+                onPress: () => {
+                  useOSB.getState().set({ remoteStores: [], remoteProducts: [], hiddenCategories: [] });
+                  blip(760);
+                  void data.reload();
+                },
+              },
+            ]);
+          }}
+          style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.line, paddingVertical: 11 }}
+        >
+          <RefreshCw size={13} color={colors.ink3} />
+          <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink3 }}>Reset catalog data (demo wapas)</Text>
+        </Pressable>
         <View style={{ marginTop: 12, gap: 8 }}>
           {CATEGORIES.map((c) => {
             const hidden = hiddenCategories.includes(c.k);

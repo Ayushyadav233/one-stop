@@ -37,6 +37,7 @@ import { CATEGORIES, PRODUCTS, STORES, inr, type Product } from "@/lib/data";
 import { blip, useOSB, DEFAULT_RIDER_PERMS, type RiderPerms } from "@/lib/osb-store";
 import { useSheetBackCloser } from "@/lib/back";
 import { timeAgo } from "@/lib/commerce";
+import { digits10 } from "@/lib/contact";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, SectionHead, VegMark } from "./ui";
 import { ProviderCatalogSheet } from "./provider-catalog";
@@ -1446,6 +1447,11 @@ export function SellerOnboarding() {
       setErr("Give your store a name.");
       return;
     }
+    // Shop phone = customer call/chat ka real number. Bina 10-digit ke aage nahi.
+    if (step === 0 && digits10(ph).length !== 10) {
+      setErr("Shop ka 10-digit mobile number likho — customers isi pe call karenge.");
+      return;
+    }
     if (step === 1 && seller.categories.length === 0) {
       setErr("Pick at least one category you sell in.");
       return;
@@ -1479,7 +1485,7 @@ export function SellerOnboarding() {
               <Field label="Business name">
                 <TextInput value={name} onChangeText={setName} placeholder="e.g. Mira’s Wardrobe" placeholderTextColor={colors.ink3} style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
               </Field>
-              <Field label="Owner phone">
+              <Field label="Shop phone * (customers call/chat here)">
                 <TextInput value={ph} onChangeText={setPh} placeholder="+91 98xxx xxxxx" placeholderTextColor={colors.ink3} keyboardType="phone-pad" style={{ fontFamily: F.semi, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
               </Field>
               <Field label="Store address">

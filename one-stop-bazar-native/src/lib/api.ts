@@ -230,6 +230,21 @@ export function apiDeleteReview(id: string) {
   return json<{ ok?: boolean }>(`/api/reviews/${encodeURIComponent(id)}`, { method: "DELETE" }, 10000);
 }
 
+/** Order chat — 1 order = 1 thread. Null = server nahi (local-only thread mode). */
+export type ApiChatMsg = { id: string; sender: string; text: string; createdAt: string };
+export function apiGetChat(orderId: string) {
+  return json<{ ok?: boolean; thread?: { id: string; orderCode?: string }; role?: string; messages?: ApiChatMsg[] }>(
+    `/api/chat/${encodeURIComponent(orderId)}`, undefined, 10000
+  );
+}
+export function apiSendChat(orderId: string, text: string) {
+  return json<{ ok?: boolean; local?: boolean; message?: ApiChatMsg }>(
+    `/api/chat/${encodeURIComponent(orderId)}`,
+    { method: "POST", body: JSON.stringify({ text }) },
+    10000
+  );
+}
+
 /** Homepage CMS — public live blocks + editable texts + version (fail-soft defaults). */
 export type ApiHomeBlock = {
   id: string; kind: "banner" | "festival" | "ad" | "strip" | "showcase";

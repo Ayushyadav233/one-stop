@@ -21,6 +21,8 @@ export const stores = pgTable("osb_stores", {
   tags: jsonb("tags").$type<string[]>().default([]),
   openHours: varchar("open_hours", { length: 80 }).default("9 AM – 11 PM"),
   healthScore: integer("health_score").default(88),
+  // Real shop phone (0014). "" / null = unknown → app support relay pe bhejta hai.
+  phone: varchar("phone", { length: 20 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -260,6 +262,24 @@ export const khataEntries = pgTable("osb_khata_entries", {
   kind: varchar("kind", { length: 16 }).default("credit"),
   amount: integer("amount").notNull(),
   note: varchar("note", { length: 240 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ---- Order chat (0014): 1 order = 1 customer↔store thread ----
+export const chatThreads = pgTable("osb_chat_threads", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: varchar("order_id", { length: 64 }).notNull().unique(),
+  orderCode: varchar("order_code", { length: 24 }),
+  storeKey: varchar("store_key", { length: 40 }),
+  customerPhone: varchar("customer_phone", { length: 40 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const chatMessages = pgTable("osb_chat_messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  threadId: uuid("thread_id").references(() => chatThreads.id, { onDelete: "cascade" }),
+  sender: varchar("sender", { length: 16 }).notNull().default("customer"), // customer | store
+  text: varchar("text", { length: 500 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -5,6 +5,7 @@
  * Fail-soft: offline / backend down / bad rows → null (static catalog chalta rahe).
  */
 import { API_BASE } from "@/lib/api";
+import { STORES } from "@/lib/data";
 import type { Kind, Product, Store } from "@/lib/data";
 
 export interface CatalogMaps {
@@ -84,6 +85,25 @@ export function productKey(storeSlug: string, name: string): string {
   return `${storeSlug}::${name.toLowerCase().trim().replace(/\s+/g, " ")}`;
 }
 
+/**
+ * Static id ("s1") ↔ slug ("meghana") — same shop, do naam.
+ * Dedupe + rail-match hamesha canonical slug pe hota hai, warna static
+ * products orphan ho jaate hain (rails khaali — wahi bug jo home kha gaya tha).
+ */
+const STATIC_SLUG: Record<string, string> = {};
+for (const s of STORES) {
+  const slug = s.slug || s.id;
+  STATIC_SLUG[s.id] = slug;
+  STATIC_SLUG[slug] = slug;
+}
+export function canonicalStoreKey(id: string | null | undefined): string {
+  const k = String(id ?? "");
+  return STATIC_SLUG[k] ?? k;
+}
+export function canonicalProductKey(storeId: string | null | undefined, name: string): string {
+  return productKey(canonicalStoreKey(storeId), name);
+}
+
 interface BackendStore {
   id?: unknown;
   slug?: unknown;
@@ -103,6 +123,7 @@ interface BackendStore {
   tags?: unknown;
   openHours?: unknown;
   healthScore?: unknown;
+  phone?: unknown;
 }
 
 interface BackendProduct {
@@ -155,6 +176,7 @@ function toStore(r: BackendStore): Store | null {
     openHours: str(r.openHours),
     healthScore: num(r.healthScore, 88),
     cuisine: tags.join(" • "),
+    phone: str(r.phone),
   };
 }
 
@@ -229,6 +251,19 @@ export async function fetchRemoteCatalog(): Promise<RemoteCatalog | null> {
       const slug = uuidToSlug[storeUuid] ?? "";
       const p = toProduct(row, slug);
       if (p) products.push(p);
+    }
+    // Guard: aadha catalog (stores bina products, ya vice-versa) persist NAHI hoga.
+    // Aise hollow sync ne hi home ke rails khaaye the — ab discard + static fallback.
+    if (products.length === 0) {
+      if (__DEV__) console.warn(`[catalog] discard hollow sync: ${stores.length} stores, 0 products`);
+      return null;
+    }
+    // Coverage: kam se kam aadhe stores ke products hone chahiye, warna seed partial hai.
+    const covered = new Set(products.map((p) => p.storeId));
+    const coverage = covered.size / Math.max(1, stores.length);
+    if (coverage < 0.5) {
+      if (__DEV__) console.warn(`[catalog] discard thin sync: coverage ${(coverage * 100).toFixed(0)}%`);
+      return null;
     }
     return { stores, products, maps: { slugToUuid, uuidToSlug } };
   } catch {

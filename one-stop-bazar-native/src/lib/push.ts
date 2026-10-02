@@ -60,6 +60,35 @@ export function getCachedPushToken(): string | null {
   return cachedToken;
 }
 
+/**
+ * Foreground chat pushes → unread badge. Background-tap wala notification
+ * app khulne pe last-response se pakda jata hai. Never throws.
+ */
+export function watchChatPushes(onChat: (orderId: string) => void): () => void {
+  try {
+    const subs: { remove: () => void }[] = [];
+    subs.push(
+      Notifications.addNotificationReceivedListener((n) => {
+        try {
+          const d = (n.request.content.data ?? {}) as Record<string, unknown>;
+          if (String(d.kind ?? "") === "chat" && d.orderId) onChat(String(d.orderId));
+        } catch { /* noop */ }
+      })
+    );
+    subs.push(
+      Notifications.addNotificationResponseReceivedListener((r) => {
+        try {
+          const d = (r.notification.request.content.data ?? {}) as Record<string, unknown>;
+          if (String(d.kind ?? "") === "chat" && d.orderId) onChat(String(d.orderId));
+        } catch { /* noop */ }
+      })
+    );
+    return () => subs.forEach((s) => { try { s.remove(); } catch { /* noop */ } });
+  } catch {
+    return () => {};
+  }
+}
+
 /** Logout/device-change: backend se token hatao. Never throws. */
 export async function unregisterForPush(): Promise<void> {
   try {

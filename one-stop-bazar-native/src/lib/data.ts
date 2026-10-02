@@ -27,6 +27,8 @@ export interface Store {
   healthScore: number;
   cuisine?: string;
   priceForTwo?: string;
+  // Real shop phone ("" = unknown → support relay). Kabhi fake number mat daalna.
+  phone?: string;
 }
 
 export interface Product {

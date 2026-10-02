@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
 import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock } from "@/lib/api";
-import { fetchRemoteCatalog, productKey } from "@/lib/catalog";
+import { canonicalProductKey, fetchRemoteCatalog } from "@/lib/catalog";
 
 export interface CartLine { productId: string; name: string; emoji: string; image?: string; price: number; qty: number; storeId: string; storeName: string; unit: string; tint: string; }
 export type OrderStatus = "new" | "accepted" | "preparing" | "ready" | "onway" | "delivered" | "cancelled";
@@ -95,6 +95,8 @@ export interface SellerSettings {
   plan: "basic" | "growth" | "scale";
 }
 export interface SellerCoupon { id: string; code: string; title: string; detail: string; kind: "pct" | "flat"; value: number; maxOff: number; minOrder: number; active: boolean; used: number; expiry: string; firstOrderOnly?: boolean; }
+/** Chat message (server ApiChatMsg + local pending flag). */
+export interface ChatMsg { id: string; sender: string; text: string; createdAt: string; pending?: boolean; }
 export interface SellerOrderItem { name: string; qty: number; price: number; }
 export type SellerOrderStatus = OrderStatus;
 export interface SellerOrder { id: string; code: string; storeId: string; customer: string; phone: string; address: string; items: SellerOrderItem[]; subtotal: number; fee: number; discount: number; total: number; payment: string; status: SellerOrderStatus; placedAt: string; createdAt: number; distanceKm: number; rider?: string; rating?: number; note?: string; etaMins: number; kind?: "product" | "service"; scheduledAt?: number | null; slotLabel?: string | null; payStatus?: "paid" | "pending"; }
@@ -160,6 +162,17 @@ interface OSBState {
   userLng?: number;
   storeId: string | null;
   bookingPid: string | null;
+  // Order chat (in-app thread, 1 order = 1 thread).
+  chatOrderId: string | null;
+  chatRole: "customer" | "store";
+  chatLastSeen: Record<string, number>;
+  chatUnread: Record<string, boolean>;
+  chatLocal: Record<string, ChatMsg[]>;
+  openChat: (orderId: string, role: "customer" | "store") => void;
+  closeChat: () => void;
+  markChatSeen: (orderId: string) => void;
+  pushChatUnread: (orderId: string) => void;
+  setChatLocal: (orderId: string, msgs: ChatMsg[]) => void;
   query: string;
   category: string;
   showCart: boolean;
@@ -271,6 +284,29 @@ export const useOSB = create<OSBState>()(
       coupon: null,
       couponProof: null,
       setCouponProof: (p) => set({ couponProof: p }),
+      chatOrderId: null,
+      chatRole: "customer",
+      chatLastSeen: {},
+      chatUnread: {},
+      chatLocal: {},
+      openChat: (orderId, role) => {
+        set((st) => ({
+          chatOrderId: orderId,
+          chatRole: role,
+          chatUnread: { ...st.chatUnread, [orderId]: false },
+          chatLastSeen: { ...st.chatLastSeen, [orderId]: Date.now() },
+        }));
+        blip(700);
+      },
+      closeChat: () => set({ chatOrderId: null }),
+      markChatSeen: (orderId) =>
+        set((st) => ({
+          chatUnread: { ...st.chatUnread, [orderId]: false },
+          chatLastSeen: { ...st.chatLastSeen, [orderId]: Date.now() },
+        })),
+      pushChatUnread: (orderId) =>
+        set((st) => (st.chatOrderId === orderId ? st : { chatUnread: { ...st.chatUnread, [orderId]: true } })),
+      setChatLocal: (orderId, msgs) => set((st) => ({ chatLocal: { ...st.chatLocal, [orderId]: msgs } })),
       language: "en",
       notifEnabled: true,
       address: "",
@@ -876,8 +912,10 @@ export function liveStores(): Store[] {
 
 export function liveProducts(): Product[] {
   const { catalog, remoteProducts } = useOSB.getState();
-  const remoteKeys = new Set(remoteProducts.map((p) => productKey(p.storeId, p.name)));
-  const rest = PRODUCTS.filter((p) => !remoteKeys.has(productKey(p.storeId, p.name)));
+  // Canonical keys (s1 == meghana) — true replace: remote jeetta hai, static
+  // duplicate nahi banta, aur orphan bhi nahi (guard ke saath double-safe).
+  const remoteKeys = new Set(remoteProducts.map((p) => canonicalProductKey(p.storeId, p.name)));
+  const rest = PRODUCTS.filter((p) => !remoteKeys.has(canonicalProductKey(p.storeId, p.name)));
   return [...catalog.filter((p) => !p.hidden), ...remoteProducts, ...rest];
 }
 
