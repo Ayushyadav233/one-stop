@@ -6,7 +6,25 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
 import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock } from "@/lib/api";
-import { canonicalProductKey, fetchRemoteCatalog } from "@/lib/catalog";
+import { fetchRemoteCatalog } from "@/lib/catalog";
+
+/* Canonical keys — LOCAL copy (catalog.ts se import nahi).
+   Metro/Hermes me cross-module import kabhi-kabhi stale bundle me
+   ReferenceError deta hai ("Property 'canonicalProductKey' doesn't exist")
+   jo poora home crash kar deta tha. Ye pure functions hain, koi dependency nahi. */
+const STATIC_SLUG: Record<string, string> = {};
+for (const s of STORES) {
+  const slug = s.slug || s.id;
+  STATIC_SLUG[s.id] = slug;
+  STATIC_SLUG[slug] = slug;
+}
+function canonicalStoreKeyLocal(id: string | null | undefined): string {
+  const k = String(id ?? "");
+  return STATIC_SLUG[k] ?? k;
+}
+function canonicalProductKeyLocal(storeId: string | null | undefined, name: string): string {
+  return `${canonicalStoreKeyLocal(storeId)}::${name.toLowerCase().trim().replace(/\s+/g, " ")}`;
+}
 
 export interface CartLine { productId: string; name: string; emoji: string; image?: string; price: number; qty: number; storeId: string; storeName: string; unit: string; tint: string; }
 export type OrderStatus = "new" | "accepted" | "preparing" | "ready" | "onway" | "delivered" | "cancelled";
@@ -902,11 +920,14 @@ export function myStoreFromSeller(seller: SellerSettings, catalog: Product[]): S
 }
 
 export function liveStores(): Store[] {
-  const { seller, catalog, remoteStores } = useOSB.getState();
+  const { seller, catalog, remoteStores, remoteProducts } = useOSB.getState();
   const mine = myStoreFromSeller(seller, catalog);
-  const remoteSlugs = new Set(remoteStores.map((s) => s.slug || s.id));
+  // Self-heal: purana hollow persisted data (stores bina products) ignore karo.
+  // Nahi to remote ids (meghana) + static products (s1) mismatch → "4 stores, 0 cards".
+  const remote = remoteProducts.length > 0 ? remoteStores : [];
+  const remoteSlugs = new Set(remote.map((s) => s.slug || s.id));
   const rest = STORES.filter((s) => !remoteSlugs.has(s.slug || s.id));
-  const list = [...remoteStores, ...rest];
+  const list = [...remote, ...rest];
   return mine ? [mine, ...list] : list;
 }
 
@@ -914,8 +935,8 @@ export function liveProducts(): Product[] {
   const { catalog, remoteProducts } = useOSB.getState();
   // Canonical keys (s1 == meghana) — true replace: remote jeetta hai, static
   // duplicate nahi banta, aur orphan bhi nahi (guard ke saath double-safe).
-  const remoteKeys = new Set(remoteProducts.map((p) => canonicalProductKey(p.storeId, p.name)));
-  const rest = PRODUCTS.filter((p) => !remoteKeys.has(canonicalProductKey(p.storeId, p.name)));
+  const remoteKeys = new Set(remoteProducts.map((p) => canonicalProductKeyLocal(p.storeId, p.name)));
+  const rest = PRODUCTS.filter((p) => !remoteKeys.has(canonicalProductKeyLocal(p.storeId, p.name)));
   return [...catalog.filter((p) => !p.hidden), ...remoteProducts, ...rest];
 }
 

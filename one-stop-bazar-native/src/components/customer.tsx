@@ -925,15 +925,6 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         </View>
         </Pressable>
 
-        {/* dev diagnostics — catalog health (hollow sync pakadne ke liye) */}
-        {__DEV__ && (
-          <View style={{ marginHorizontal: 16, marginTop: 8, borderRadius: 10, backgroundColor: "#111114", paddingHorizontal: 10, paddingVertical: 6 }}>
-            <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: "#D8F34E" }}>
-              CAT {stores.length} ({["food", "service", "grocery", "medical"].map((k) => `${k}:${stores.filter((s) => s.kind === k).length}`).join(" ")}) • PROD {products.length} • REMOTE {useOSB.getState().remoteProducts.length}
-            </Text>
-          </View>
-        )}
-
         {/* category grid */}
         {showCategories && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
