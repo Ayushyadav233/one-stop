@@ -416,6 +416,16 @@ const STR = {
   walFoot: { en: "Wallet auto-applies at checkout • Refunds land here in 24–48 hrs", hi: "Checkout पे वॉलेट auto-apply होता है • Refund 24–48 घंटे में यहीं आता है" },
   // session expired banner
   sesExpiredT: { en: "Session expired", hi: "सेशन खत्म" },
+  // milestone rewards (loyalty ladder)
+  msTitle: { en: "Milestone rewards 🏆", hi: "माइलस्टोन रिवॉर्ड 🏆" },
+  msSub: { en: "Order more, unlock bigger coupons", hi: "ज्यादा ऑर्डर करो, बड़े कूपन खोलो" },
+  msProgress: { en: "{have}/{need} orders", hi: "{have}/{need} ऑर्डर" },
+  msNeedMore: { en: "{n} more orders to unlock", hi: "unlock के लिए {n} और ऑर्डर" },
+  msNeedMoreVal: { en: "{n} more ₹{v}+ orders to unlock", hi: "unlock के लिए {n} और ₹{v}+ ऑर्डर" },
+  msLockedMsg: { en: "{code} unlocks after {need} delivered orders.", hi: "{code} {need} डिलीवर ऑर्डर के बाद खुलेगा।" },
+  msLockedMsgVal: { en: "{code} unlocks after {need} delivered orders of ₹{v}+.", hi: "{code} ₹{v}+ वाले {need} डिलीवर ऑर्डर के बाद खुलेगा।" },
+  msUnlocked: { en: "Unlocked 🎉", hi: "खुल गया 🎉" },
+  msLockedTag: { en: "🔒 LOCKED", hi: "🔒 लॉक्ड" },
   sesExpiredS: { en: "Login again to sync wallet, referrals & store.", hi: "वॉलेट, रेफरल और स्टोर sync के लिए दोबारा login करो।" },
   sesLoginBtn: { en: "Login again", hi: "दोबारा login करो" },
   // search tab

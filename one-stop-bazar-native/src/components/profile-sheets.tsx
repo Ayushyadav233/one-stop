@@ -13,12 +13,14 @@ import { COUPONS } from "@/lib/data";
 import {
   apiDeleteReview,
   apiGetCoupons,
+  apiGetMilestones,
   apiGetReferrals,
   apiMyReviews,
   apiValidateCoupon,
   POINTS_PER_RUPEE,
   REFER_REWARD_POINTS,
   type ApiCoupon,
+  type ApiMilestone,
   type ApiReview,
 } from "@/lib/api";
 import { registerForPush, unregisterForPush } from "@/lib/push";
@@ -92,9 +94,14 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
+  // Loyalty ladder — locked bhi dikhte hain (progress ke saath).
+  const [ms, setMs] = useState<ApiMilestone[]>([]);
 
   useEffect(() => {
     let live = true;
+    apiGetMilestones()
+      .then((rows) => { if (live) setMs(rows); })
+      .catch(() => {});
     apiGetCoupons()
       .then((rows) => {
         if (!live || rows.length === 0) return;
@@ -103,6 +110,8 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
         for (const r of rows as ApiCoupon[]) {
           const code = String(r.code ?? "").toUpperCase();
           if (!code || seen.has(code)) continue;
+          // Milestone wale neeche apne section me (locked progress ke saath).
+          if (Number(r.minOrders ?? 0) > 0) continue;
           seen.add(code);
           merged.push({
             code,
@@ -193,6 +202,79 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
           );
         })}
       </View>
+      {ms.length > 0 && (
+        <View style={{ marginTop: 18 }}>
+          <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{tr("msTitle")}</Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{tr("msSub")}</Text>
+          <View style={{ marginTop: 10, gap: 10 }}>
+            {ms.map((m) => {
+              const c = m.coupon;
+              const code = String(c.code ?? "").toUpperCase();
+              const on = activeCoupon === code;
+              const minVal = Number(c.minOrderValue ?? 0);
+              const pct = m.need > 0 ? Math.min(100, Math.round((m.have / m.need) * 100)) : 100;
+              const lockedMsg = minVal > 0
+                ? tr("msLockedMsgVal", { code, need: m.need, v: minVal })
+                : tr("msLockedMsg", { code, need: m.need });
+              return (
+                <View key={code} style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: m.unlocked ? 2 : 1, borderColor: m.unlocked ? "#0C831F" : colors.line, opacity: m.unlocked ? 1 : 0.92, padding: 14 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{code}</Text>
+                    {on ? <Check size={15} color="#0C831F" /> : null}
+                    {!m.unlocked && (
+                      <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("msLockedTag")}</Text>
+                      </View>
+                    )}
+                    {m.unlocked && !on && (
+                      <View style={{ borderRadius: 999, backgroundColor: "rgba(12,131,31,.12)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#0C831F" }}>{tr("msUnlocked")}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 12.5, color: colors.ink }}>{String(c.title ?? code)}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{String(c.detail ?? "")}</Text>
+                  <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ flex: 1, height: 8, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
+                      <View style={{ height: "100%", width: `${pct}%`, borderRadius: 999, backgroundColor: m.unlocked ? "#0C831F" : "#E8A33D" }} />
+                    </View>
+                    <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink2 }}>{tr("msProgress", { have: m.have, need: m.need })}</Text>
+                  </View>
+                  <Text style={{ marginTop: 4, fontFamily: F.semi, fontSize: 11, color: m.unlocked ? "#0C831F" : colors.ink3 }}>
+                    {m.unlocked
+                      ? tr("msUnlocked")
+                      : minVal > 0
+                        ? tr("msNeedMoreVal", { n: m.need - m.have, v: minVal })
+                        : tr("msNeedMore", { n: m.need - m.have })}
+                  </Text>
+                  <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
+                    <Pressable onPress={() => void copy(code)} style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 11 }}>
+                      <Copy size={14} color={colors.ink} />
+                      <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("cpnCopyBtn")}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (!m.unlocked) {
+                          setMsg(lockedMsg);
+                          blip(320);
+                          return;
+                        }
+                        void apply({ code, title: String(c.title ?? code), detail: String(c.detail ?? ""), minOrder: Number(c.minOrder ?? 0) });
+                      }}
+                      disabled={!!busy}
+                      style={{ flex: 1, borderRadius: 12, backgroundColor: !m.unlocked ? colors.chip : on ? "#0C831F" : "#E23744", paddingVertical: 11, alignItems: "center", opacity: busy ? 0.6 : 1 }}
+                    >
+                      <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: !m.unlocked ? colors.ink3 : "#fff" }}>
+                        {busy === code ? tr("cartChecking") : on ? tr("cpnApplied") : m.unlocked ? tr("cpnApply") : tr("msLockedTag")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
       <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 11, color: colors.ink3, textAlign: "center" }}>
         {tr("cpnNote")}
       </Text>

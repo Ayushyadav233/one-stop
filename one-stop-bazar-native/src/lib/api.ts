@@ -185,6 +185,7 @@ export type ApiCoupon = {
   fundedBy?: string | null; storeKey?: string | null; active?: boolean | null;
   startsAt?: string | null; expiresAt?: string | null;
   maxUsesPerUser?: number | null; firstOrderOnly?: boolean | null;
+  minOrders?: number | null; minOrderValue?: number | null;
 };
 export function apiGetCoupons(storeKey?: string) {
   const q = storeKey ? `?storeKey=${encodeURIComponent(storeKey)}` : "";
@@ -197,6 +198,13 @@ export function apiValidateCoupon(code: string, subtotal: number, storeKey?: str
     "/api/coupons/validate",
     { method: "POST", body: JSON.stringify({ code, subtotal, storeKey }) },
     10000
+  );
+}
+/** Loyalty ladder + per-user progress (auth). Fail-soft [] when offline. */
+export type ApiMilestone = { coupon: ApiCoupon; need: number; have: number; unlocked: boolean };
+export function apiGetMilestones() {
+  return json<{ milestones?: ApiMilestone[] }>("/api/coupons/milestones", undefined, 10000).then((j) =>
+    Array.isArray(j?.milestones) ? j!.milestones! : []
   );
 }
 /** Seller apne store ka offer (apni jeb se) — list/create/toggle/delete. */

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { coupons } from "../db/schema.js";
 import { auth, getUser } from "../middleware/auth.js";
-import { checkCoupon } from "../lib/coupons.js";
+import { checkCoupon, userQualifiedOrders } from "../lib/coupons.js";
 import { logInfo, logWarn } from "../lib/logger.js";
 
 export const couponsRoute = new Hono();
@@ -25,6 +25,8 @@ function publicCoupon(r: typeof coupons.$inferSelect) {
     expiresAt: r.expiresAt ?? null,
     maxUsesPerUser: r.maxUsesPerUser ?? 1,
     firstOrderOnly: r.firstOrderOnly ?? false,
+    minOrders: Number(r.minOrders ?? 0),
+    minOrderValue: Number(r.minOrderValue ?? 0),
   };
 }
 
@@ -38,6 +40,8 @@ couponsRoute.get("/", async (c) => {
       if (r.active === false) return false;
       if (r.startsAt && new Date(r.startsAt).getTime() > now) return false;
       if (r.expiresAt && new Date(r.expiresAt).getTime() < now) return false;
+      // Milestone wale /milestones endpoint pe (locked progress ke saath) — yaha sirf usable.
+      if (Number(r.minOrders ?? 0) > 0) return false;
       // Seller coupon: ya to uske store ke liye manga ho, ya chhupao.
       if (r.fundedBy === "seller" && r.storeKey && storeKey && r.storeKey !== storeKey) return false;
       if (r.fundedBy === "seller" && r.storeKey && !storeKey) return true; // list me "store offer" tag ke saath
@@ -77,6 +81,8 @@ couponsRoute.post("/", auth, async (c) => {
       maxUsesTotal: b.maxUsesTotal != null && Number.isFinite(Number(b.maxUsesTotal)) ? Math.round(Number(b.maxUsesTotal)) : null,
       maxUsesPerUser: b.maxUsesPerUser != null ? Math.max(1, Math.round(Number(b.maxUsesPerUser))) : 1,
       firstOrderOnly: !!b.firstOrderOnly,
+      minOrders: b.minOrders != null && Number.isFinite(Number(b.minOrders)) ? Math.max(0, Math.round(Number(b.minOrders))) : 0,
+      minOrderValue: b.minOrderValue != null && Number.isFinite(Number(b.minOrderValue)) ? Math.max(0, Math.round(Number(b.minOrderValue))) : 0,
       maxBudget: b.maxBudget != null && Number.isFinite(Number(b.maxBudget)) ? Math.round(Number(b.maxBudget)) : null,
     })
     .returning();
@@ -98,6 +104,8 @@ couponsRoute.patch("/:id", auth, async (c) => {
   if (b.maxUsesTotal !== undefined) patch.maxUsesTotal = b.maxUsesTotal == null ? null : Math.max(1, Math.round(Number(b.maxUsesTotal)));
   if (b.maxUsesPerUser !== undefined && Number.isFinite(Number(b.maxUsesPerUser))) patch.maxUsesPerUser = Math.max(1, Math.round(Number(b.maxUsesPerUser)));
   if (typeof b.firstOrderOnly === "boolean") patch.firstOrderOnly = b.firstOrderOnly;
+  if (b.minOrders !== undefined && Number.isFinite(Number(b.minOrders))) patch.minOrders = Math.max(0, Math.round(Number(b.minOrders)));
+  if (b.minOrderValue !== undefined && Number.isFinite(Number(b.minOrderValue))) patch.minOrderValue = Math.max(0, Math.round(Number(b.minOrderValue)));
   if (b.maxBudget !== undefined) patch.maxBudget = b.maxBudget == null ? null : Math.max(1, Math.round(Number(b.maxBudget)));
   if (typeof b.expiresAt === "string") patch.expiresAt = b.expiresAt ? new Date(b.expiresAt) : null;
   if (typeof b.startsAt === "string") patch.startsAt = b.startsAt ? new Date(b.startsAt) : null;
@@ -111,6 +119,35 @@ couponsRoute.delete("/:id", auth, async (c) => {
   const id = c.req.param("id") ?? "";
   await db.delete(coupons).where(eq(coupons.id, id));
   return c.json({ ok: true, id });
+});
+
+// GET /api/coupons/milestones (auth) — loyalty ladder + per-user progress.
+// Locked coupons bhi dikhte hain (progress ke saath) taaki motivation bane;
+// apply sirf unlocked pe (validate me server guard hai).
+couponsRoute.get("/milestones", auth, async (c) => {
+  const u = getUser(c);
+  try {
+    const rows = await db.select().from(coupons).limit(100);
+    const now = Date.now();
+    const live = rows.filter((r) => {
+      if (r.active === false) return false;
+      if (Number(r.minOrders ?? 0) <= 0) return false;
+      if (r.startsAt && new Date(r.startsAt).getTime() > now) return false;
+      if (r.expiresAt && new Date(r.expiresAt).getTime() < now) return false;
+      if (r.maxUsesTotal != null && Number(r.usesTotal ?? 0) >= Number(r.maxUsesTotal)) return false;
+      return true;
+    });
+    const out: { coupon: ReturnType<typeof publicCoupon>; need: number; have: number; unlocked: boolean }[] = [];
+    for (const r of live) {
+      const need = Number(r.minOrders ?? 0);
+      const have = await userQualifiedOrders(u.phone, Number(r.minOrderValue ?? 0));
+      out.push({ coupon: publicCoupon(r), need, have: Math.min(have, need), unlocked: have >= need });
+    }
+    out.sort((a, b) => a.need - b.need);
+    return c.json({ milestones: out });
+  } catch {
+    return c.json({ milestones: [] });
+  }
 });
 
 // Validate — LOGIN REQUIRED (fail-closed). Saare guardrails yahi check hote hain.

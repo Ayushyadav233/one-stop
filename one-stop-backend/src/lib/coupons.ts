@@ -41,6 +41,24 @@ async function userOrderCount(phone: string): Promise<number> {
 }
 
 /**
+ * Milestone progress: kitne DELIVERED orders (cancelled/refund nahi ginte).
+ * minValue > 0 ho to sirf utne+ total wale orders (e.g. "₹199+ ke 5 order").
+ * Phone dono taraf normalize (app "+91 ..." bhejta hai, users me 10-digit).
+ */
+export async function userQualifiedOrders(phone: string, minValue = 0): Promise<number> {
+  try {
+    const digits = String(phone ?? "").replace(/\D/g, "").slice(-10);
+    if (digits.length !== 10) return 0;
+    const r = await db.execute(
+      sql`select count(*)::int as n from osb_orders where right(regexp_replace(customer_phone, '\\D', '', 'g'), 10) = ${digits} and status = 'delivered' and total >= ${Math.max(0, Math.round(minValue))}`,
+    );
+    return Number((r.rows?.[0] as { n?: number } | undefined)?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Full guard check (validate + order dono yahi use karte hain).
  * Returns { ok, discount } ya { ok:false, error } with user-facing Hindi reason.
  */
@@ -82,6 +100,22 @@ export async function checkCoupon(
     const n = await userOrderCount(user.phone);
     if (n > 0) return { ok: false, error: "ye coupon sirf pehle order pe lagta hai" };
   }
+  // Milestone lock (loyalty ladder): N delivered orders ke baad unlock.
+  // Server-side guard — app me code type karke bypass impossible.
+  const needOrders = Number(cp.minOrders ?? 0);
+  if (needOrders > 0) {
+    const minVal = Number(cp.minOrderValue ?? 0);
+    const have = await userQualifiedOrders(user.phone, minVal);
+    if (have < needOrders) {
+      const more = needOrders - have;
+      return {
+        ok: false,
+        error: minVal > 0
+          ? `locked — ${more} aur ₹${minVal}+ order pe unlock`
+          : `locked — ${more} aur order pe unlock`,
+      };
+    }
+  }
   // Total uses cap.
   if (cp.maxUsesTotal != null && Number(cp.usesTotal ?? 0) >= Number(cp.maxUsesTotal)) {
     return { ok: false, error: "coupon limit khatm — agla offer dekho" };
@@ -121,6 +155,39 @@ export async function consumeCoupon(
       })
       .where(eq(coupons.id, cp.id));
   } catch { /* counter best-effort */ }
+}
+
+/** Milestone ladder idempotent seed — code ho to skip, nahi to banao. */
+export async function ensureMilestoneCoupons(list: {
+  code: string; title: string; detail: string; offPct: number; maxOff: number;
+  minOrder: number; minOrders: number; minOrderValue: number; maxBudget: number;
+}[]): Promise<number> {
+  let added = 0;
+  for (const m of list) {
+    try {
+      const code = String(m.code ?? "").trim().toUpperCase().slice(0, 32);
+      if (!code) continue;
+      const rows = await db.select({ id: coupons.id }).from(coupons).where(eq(coupons.code, code)).limit(1);
+      if (rows[0]) continue;
+      await db.insert(coupons).values({
+        code,
+        title: String(m.title ?? code).slice(0, 180),
+        detail: String(m.detail ?? "").slice(0, 320),
+        offPct: Math.max(1, Math.min(90, Math.round(m.offPct))),
+        maxOff: Math.max(1, Math.round(m.maxOff)),
+        minOrder: Math.max(0, Math.round(m.minOrder)),
+        kind: "all",
+        fundedBy: "platform",
+        active: true,
+        maxUsesPerUser: 1,
+        minOrders: Math.max(0, Math.round(m.minOrders)),
+        minOrderValue: Math.max(0, Math.round(m.minOrderValue)),
+        maxBudget: Math.max(1, Math.round(m.maxBudget)),
+      });
+      added++;
+    } catch { /* next */ }
+  }
+  return added;
 }
 
 /** Seller apne store ka coupon banaye — kharcha uske hisse (fundedBy=seller). */

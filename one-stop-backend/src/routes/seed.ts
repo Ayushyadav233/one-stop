@@ -1,14 +1,17 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { coupons, products, stores } from "../db/schema.js";
-import { COUPONS, PRODUCTS, STORES } from "../db/static-data.js";
+import { COUPONS, MILESTONE_COUPONS, PRODUCTS, STORES } from "../db/static-data.js";
 import { sql } from "drizzle-orm";
 import { logOk } from "../lib/logger.js";
+import { ensureMilestoneCoupons } from "../lib/coupons.js";
 
 export const seedRoute = new Hono();
 
 async function doSeed() {
   await db.execute(sql`select 1`);
+  // Loyalty ladder hamesha ensure (idempotent) — naye milestone bina full reseed ke live.
+  await ensureMilestoneCoupons(MILESTONE_COUPONS).catch(() => 0);
   const existing = await db.select({ id: stores.id }).from(stores).limit(1);
   if (existing.length > 0) {
     // Resumable top-up: purana partial seed (stores bina products) khud heal ho.

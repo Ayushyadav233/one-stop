@@ -67,6 +67,10 @@ export const coupons = pgTable("osb_coupons", {
   usesTotal: integer("uses_total").default(0),
   maxUsesPerUser: integer("max_uses_per_user").default(1),
   firstOrderOnly: boolean("first_order_only").default(false),
+  // Milestone ladder (loyalty): N delivered orders ke baad unlock (0 = koi target nahi).
+  // minOrderValue > 0 ho to sirf utne+ value wale delivered orders gine jate hain.
+  minOrders: integer("min_orders").default(0),
+  minOrderValue: integer("min_order_value").default(0),
   maxBudget: integer("max_budget"),
   budgetUsed: integer("budget_used").default(0),
 });

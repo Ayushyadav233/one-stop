@@ -245,6 +245,18 @@ export const COUPONS = [
   { code: "FREEDEL", title: "Free delivery", detail: "On 3 orders this week", offPct: 100, maxOff: 35, minOrder: 99 },
 ];
 
+/**
+ * Loyalty ladder — target pura → coupon unlock (single-use each).
+ * No-loss math: har coupon pe maxOff cap + minOrder floor + maxUsesPerUser 1
+ * + maxBudget global cap. Sirf DELIVERED orders ginte hain (cancel nahi).
+ */
+export const MILESTONE_COUPONS = [
+  { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", offPct: 20, maxOff: 80, minOrder: 149, minOrders: 3, minOrderValue: 0, maxBudget: 20000 },
+  { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", offPct: 50, maxOff: 100, minOrder: 199, minOrders: 5, minOrderValue: 0, maxBudget: 30000 },
+  { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", offPct: 40, maxOff: 150, minOrder: 299, minOrders: 5, minOrderValue: 199, maxBudget: 20000 },
+  { code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", offPct: 25, maxOff: 200, minOrder: 499, minOrders: 10, minOrderValue: 0, maxBudget: 15000 },
+];
+
 export function greetingForHour(h: number) {
   if (h < 5) return { label: "Late night cravings?", sub: "24×7 meds, ice-cream & comfort", mood: "night" as const };
   if (h < 11) return { label: "Good morning", sub: "Hot breakfast, fresh milk & greens nearby", mood: "morning" as const };
