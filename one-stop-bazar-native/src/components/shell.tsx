@@ -423,7 +423,7 @@ const NAV: Record<string, [string, string, LucideIcon][] | undefined> = {
 
   export function BottomNav() {
    const tab = useOSB((s) => s.tab);
-   const set = useOSB((s) => s.set);
+  const set = useOSB((s) => s.set);
    const mode = useOSB((s) => s.mode);
    const role = useOSB((s) => s.role);
    const language = useOSB((s) => s.language);
@@ -1637,6 +1637,9 @@ function ShellBody() {
   const profileComplete = useOSB((s) => s.profileComplete);
   const locationSet = useOSB((s) => s.locationSet);
   const set = useOSB((s) => s.set);
+  const logout = useOSB((s) => s.logout);
+  const sessionExpired = useOSB((s) => s.sessionExpired);
+  const tr = useTx();
   const tab = useOSB((s) => s.tab);
   const mode = useOSB((s) => s.mode);
   const storeId = useOSB((s) => s.storeId);
@@ -1724,6 +1727,17 @@ function ShellBody() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.app }}>
       <AndroidStatusBar />
+      {loggedIn && sessionExpired && (
+        <Pressable onPress={() => { logout(); blip(600); }} style={{ marginHorizontal: 12, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: "#E23744", paddingHorizontal: 14, paddingVertical: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>{tr("sesExpiredT")}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.85)" }}>{tr("sesExpiredS")}</Text>
+          </View>
+          <View style={{ borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 8 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>{tr("sesLoginBtn")}</Text>
+          </View>
+        </Pressable>
+      )}
       <View style={{ flex: 1 }}>
         {authed && mode === "customer" && tab === "home" && <CustomerHome onStore={openStore} />}
         {authed && mode === "customer" && tab === "cats" && <CategoriesTab onStore={openStore} />}

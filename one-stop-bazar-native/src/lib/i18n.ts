@@ -414,6 +414,10 @@ const STR = {
   walRedeemed: { en: "Redeemed", hi: "रिडीम हुआ" },
   walPtsN: { en: "{s}{n} pts", hi: "{s}{n} पॉइंट्स" },
   walFoot: { en: "Wallet auto-applies at checkout • Refunds land here in 24–48 hrs", hi: "Checkout पे वॉलेट auto-apply होता है • Refund 24–48 घंटे में यहीं आता है" },
+  // session expired banner
+  sesExpiredT: { en: "Session expired", hi: "सेशन खत्म" },
+  sesExpiredS: { en: "Login again to sync wallet, referrals & store.", hi: "वॉलेट, रेफरल और स्टोर sync के लिए दोबारा login करो।" },
+  sesLoginBtn: { en: "Login again", hi: "दोबारा login करो" },
   // search tab
   srchPh: { en: "Search biryani, milk, plumber…", hi: "बिरयानी, दूध, प्लंबर खोजो…" },
   srchListening: { en: "Listening… “extra cheese dosa”", hi: "सुन रहे हैं… “एक्स्ट्रा चीज़ डोसा”" },

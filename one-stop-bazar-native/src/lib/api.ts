@@ -21,6 +21,14 @@ export function getApiToken() {
   return API_TOKEN;
 }
 
+/* 401 watcher — server ne token thukraya (stale/rotated session) to app
+   silent-fail ki jagah "dobara login" UX dikhaye. osb-store register karta
+   hai (cycle se bachne ke liye callback, direct import nahi). */
+let authFailHandler: (() => void) | null = null;
+export function onAuthFailure(cb: (() => void) | null) {
+  authFailHandler = cb;
+}
+
 async function json<T>(path: string, init?: RequestInit, timeoutMs = 8000): Promise<T | null> {
   try {
     const ctrl = new AbortController();
@@ -33,6 +41,9 @@ async function json<T>(path: string, init?: RequestInit, timeoutMs = 8000): Prom
       signal: ctrl.signal,
     });
     clearTimeout(t);
+    if (res.status === 401 && authFailHandler) {
+      try { authFailHandler(); } catch { /* noop */ }
+    }
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {

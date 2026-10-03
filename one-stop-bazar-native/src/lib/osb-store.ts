@@ -5,7 +5,7 @@ import { Vibration } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
-import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock, type ApiSellerStore } from "@/lib/api";
+import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, onAuthFailure, type ApiHomeBlock, type ApiSellerStore } from "@/lib/api";
 import { fetchRemoteCatalog } from "@/lib/catalog";
 
 /* Canonical keys — LOCAL copy (catalog.ts se import nahi).
@@ -155,6 +155,8 @@ interface OSBState {
    booted: boolean;
    onboarded: boolean;
    loggedIn: boolean;
+   // Server ne token thukraya (401) — dobara login chahiye. Persist nahi hota.
+   sessionExpired: boolean;
    phone: string;
    userName: string;
    userEmail: string;
@@ -364,6 +366,7 @@ export const useOSB = create<OSBState>()(
       booted: false,
       onboarded: false,
       loggedIn: false,
+      sessionExpired: false,
       phone: "",
       userName: "",
       userEmail: "",
@@ -549,7 +552,8 @@ export const useOSB = create<OSBState>()(
       login: (phone) => {
         const digits = phone.replace(/\D/g, "").slice(-10);
         // Dusre number pe login → purane shop ka server link invalid; sync dobara resolve karega.
-        set({ sellerServerId: null });
+        // Fresh login = session valid — purana expired flag hatao.
+        set({ sellerServerId: null, sessionExpired: false });
         const st = get();
         const prev = st.phone.replace(/\D/g, "").slice(-10);
         let accounts = st.accounts;
@@ -720,7 +724,7 @@ export const useOSB = create<OSBState>()(
         } else {
           get().saveAccount();
         }
-        set({ loggedIn: false, mode: "customer", tab: "home", riderCtx: null });
+        set({ loggedIn: false, mode: "customer", tab: "home", riderCtx: null, sessionExpired: false });
       },
       ensureCatalog: () => {
         const st = get();
@@ -1050,9 +1054,18 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist,    orders: s.orders, trackingOrderId: s.trackingOrderId, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerServerId: s.sellerServerId, sellerDirty: s.sellerDirty, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx, walletPoints: s.walletPoints, myReferralCode: s.myReferralCode, walletTx: s.walletTx, useWallet: s.useWallet } as unknown as OSBState) }
+      { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist,    orders: s.orders, trackingOrderId: s.trackingOrderId, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerServerId: s.sellerServerId, sellerDirty: s.sellerDirty, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx, walletPoints: s.walletPoints, myReferralCode: s.myReferralCode, walletTx: s.walletTx, useWallet: s.useWallet } as unknown as OSBState) }
   )
 );
+
+/* 401 watcher — token stale/rotated to server syncs fail-soft ki jagah
+   "dobara login" banner dikhaye. sessionExpired persist nahi hota. */
+try {
+  onAuthFailure(() => {
+    const st = useOSB.getState();
+    if (st.loggedIn && !st.sessionExpired) useOSB.setState({ sessionExpired: true });
+  });
+} catch { /* noop */ }
 
 export function activeCategories(): CategoryDef[] {
   const { extraCategories, hiddenCategories } = useOSB.getState();
