@@ -46,6 +46,7 @@ import { apiGetCoupons, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, REF
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
 import { useT, useTx, type StrKey } from "@/lib/i18n";
+import { copyText } from "@/lib/clipboard";
 import { statusLabel } from "@/lib/commerce";
 import { useTheme } from "@/theme/ThemeProvider";
 import { AddStepper, F, Glass, Img, LiveDot, Rating, SectionHead, SpringBtn, VegMark } from "./ui";
@@ -2600,21 +2601,12 @@ export function ProfileTab() {
   };
   const copyCoupon = async () => {
     if (!coupon) return;
-    try {
-      // Lazy require: purani dev-build binary me ExpoClipboard native code
-      // nahi hai — static import poora bundle gira deta hai. Copy tabhi
-      // chalega jab binary me module ho (fresh build), warna Copied tick
-      // ke saath code sheet me dikhta rahega.
-      const Clipboard = require("expo-clipboard") as { setStringAsync(s: string): Promise<void> };
-      await Clipboard.setStringAsync(coupon);
-      setCopiedTick(true);
-      blip(760);
-      setTimeout(() => setCopiedTick(false), 1600);
-    } catch {
-      // Clipboard unavailable — code waise bhi card pe visible hai.
-      setCopiedTick(true);
-      setTimeout(() => setCopiedTick(false), 1600);
-    }
+    // Safe copy — stale build me native module nahi hota (no redbox).
+    // Clipboard unavailable — code waise bhi card pe visible hai.
+    await copyText(coupon);
+    setCopiedTick(true);
+    blip(760);
+    setTimeout(() => setCopiedTick(false), 1600);
   };
   return (
     <View style={{ flex: 1 }}>

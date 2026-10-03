@@ -11,9 +11,18 @@ import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useOSB } from "@/lib/osb-store";
 import { ThemeProvider } from "@/theme/ThemeProvider";
+
+// Reanimated 4.5.x logs "opacity may be overwritten by a layout animation"
+// spuriously for nested entering animations — is codebase me koi `layout`
+// animation hai hi nahi, isliye ye warning-only noise hai. Asli `layout`
+// prop add ho to ye ignore hatana (warna real conflict chhup jayega).
+LogBox.ignoreLogs([
+  'Property "opacity" of AnimatedComponent(View) may be overwritten by a layout animation',
+]);
 
 // Mapbox native code ships only in dev-client / release builds — never in
 // Expo Go, and a stale dev-client APK predates the module. A static import

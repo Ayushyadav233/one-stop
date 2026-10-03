@@ -22,6 +22,7 @@ import {
   type ApiReview,
 } from "@/lib/api";
 import { registerForPush, unregisterForPush } from "@/lib/push";
+import { copyText } from "@/lib/clipboard";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { useT, useTx, type StrKey } from "@/lib/i18n";
@@ -122,18 +123,15 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
   }, []);
 
   const copy = useCallback(async (code: string) => {
-    try {
-      // Lazy require — purani binary me native module missing ho to
-      // static import bundle gira deta hai; yaha catch me code dikha do.
-      const Clipboard = require("expo-clipboard") as { setStringAsync(s: string): Promise<void> };
-      await Clipboard.setStringAsync(code);
+    // Safe copy — stale APK me native module nahi hota, waha false milta hai (no redbox).
+    if (await copyText(code)) {
       setCopied(code);
       blip(760);
       setTimeout(() => setCopied(""), 1600);
-    } catch {
+    } else {
       setMsg(tr("cpnCopyFail", { code }));
     }
-  }, []);
+  }, [tr]);
 
   const apply = useCallback(async (c: CouponVM) => {
     setBusy(c.code);
@@ -448,10 +446,7 @@ export function WalletSheet({ onClose }: { onClose: () => void }) {
 
   const copyCode = async () => {
     if (!code) return;
-    try {
-      const Clipboard = require("expo-clipboard") as { setStringAsync(s: string): Promise<void> };
-      await Clipboard.setStringAsync(code);
-    } catch { /* visible anyway */ }
+    await copyText(code); // false = stale build, code waise bhi screen pe visible hai
     setCopied(true);
     blip(760);
     setTimeout(() => setCopied(false), 1600);

@@ -278,7 +278,7 @@ export function Onboarding() {
                   return (
                     <Animated.View
                       key={ci}
-                      entering={FadeIn.delay(ci * 70).springify().stiffness(180).damping(18)}
+                      entering={FadeIn.delay(ci * 70).duration(240)}
                       style={{
                         height: 172,
                         borderRadius: 24,
@@ -1153,7 +1153,7 @@ export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
         ))}
       </View>
       <Animated.View
-        entering={FadeIn.springify().stiffness(180).damping(18)}
+        entering={FadeIn.duration(240)}
         style={{ width: "100%", maxWidth: 330, borderRadius: 26, backgroundColor: "#fff", overflow: "hidden", alignItems: "center" }}
       >
         <View style={{ height: 130, width: "100%" }}>
