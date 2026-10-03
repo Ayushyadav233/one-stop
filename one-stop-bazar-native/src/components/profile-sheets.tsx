@@ -9,19 +9,19 @@ import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { Bell, BellOff, Check, ChevronDown, Copy, Globe, Moon, Phone, Send, Star, Sun, Trash2, Users, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
 import { useSheetBackCloser } from "@/lib/back";
-import { COUPONS } from "@/lib/data";
+import { STAGE_FALLBACK } from "@/lib/data";
 import {
   apiDeleteReview,
-  apiGetCoupons,
-  apiGetMilestones,
   apiGetReferrals,
+  apiGetStages,
   apiMyReviews,
   apiValidateCoupon,
   POINTS_PER_RUPEE,
   REFER_REWARD_POINTS,
   type ApiCoupon,
-  type ApiMilestone,
   type ApiReview,
+  type ApiStage,
+  type ApiStageItem,
 } from "@/lib/api";
 import { registerForPush, unregisterForPush } from "@/lib/push";
 import { copyText } from "@/lib/clipboard";
@@ -79,8 +79,25 @@ function Stars({ n, size = 13 }: { n: number; size?: number }) {
   );
 }
 
-/* ═══════════ CouponsSheet ═══════════ */
-type CouponVM = { code: string; title: string; detail: string; minOrder: number };
+/* ═══════════ CouponsSheet — STRICT reward stages ═══════════
+ * Bina requirement poore koi coupon select nahi hota: LOCKED/USED/EXPIRED
+ * cards ke buttons dead hain (sirf reason msg). Server pe bhi guard
+ * (validate fail-closed) — UI + API dono strict. */
+
+/** /stages offline ho tab locked fallback (sab LOCKED, login pe live). */
+export function fallbackStages(): ApiStage[] {
+  return STAGE_FALLBACK.map((s) => ({
+    need: s.need, have: 0, unlockedCount: 0, total: s.coupons.length,
+    items: s.coupons.map((f) => ({
+      coupon: {
+        code: f.code, title: f.title, detail: f.detail,
+        minOrder: f.minOrder, minOrderValue: f.minOrderValue ?? 0,
+        firstOrderOnly: s.need === 0,
+      },
+      need: s.need, have: 0, unlocked: false, state: "LOCKED" as const,
+    })),
+  }));
+}
 
 export function CouponsSheet({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -90,46 +107,34 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
   const activeCoupon = useOSB((s) => s.coupon);
   const setCouponProof = useOSB((s) => s.setCouponProof);
   const cartTotal = useOSB((s) => s.cartTotal);
-  const [list, setList] = useState<CouponVM[]>(COUPONS.map((c) => ({ code: c.code, title: c.title, detail: c.detail, minOrder: c.minOrder })));
   const [copied, setCopied] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
-  // Loyalty ladder — locked bhi dikhte hain (progress ke saath).
-  const [ms, setMs] = useState<ApiMilestone[]>([]);
+  // STRICT stages — server single source, offline pe locked fallback.
+  const [stages, setStages] = useState<ApiStage[] | null>(null);
+  const [delivered, setDelivered] = useState(0);
 
   useEffect(() => {
     let live = true;
-    apiGetMilestones()
-      .then((rows) => { if (live) setMs(rows); })
-      .catch(() => {});
-    apiGetCoupons()
-      .then((rows) => {
-        if (!live || rows.length === 0) return;
-        const seen = new Set<string>();
-        const merged: CouponVM[] = [];
-        for (const r of rows as ApiCoupon[]) {
-          const code = String(r.code ?? "").toUpperCase();
-          if (!code || seen.has(code)) continue;
-          // Milestone wale neeche apne section me (locked progress ke saath).
-          if (Number(r.minOrders ?? 0) > 0) continue;
-          seen.add(code);
-          merged.push({
-            code,
-            title: String(r.title ?? code),
-            detail: String(r.detail ?? `Min order ₹${r.minOrder ?? 0}`),
-            minOrder: Number(r.minOrder ?? 0),
-          });
+    apiGetStages()
+      .then((r) => {
+        if (live && r.stages.length > 0) {
+          setStages(r.stages);
+          setDelivered(Number(r.delivered ?? 0));
         }
-        for (const c of COUPONS) {
-          if (seen.has(c.code)) continue;
-          seen.add(c.code);
-          merged.push({ code: c.code, title: c.title, detail: c.detail, minOrder: c.minOrder });
-        }
-        setList(merged);
       })
       .catch(() => {});
     return () => { live = false; };
   }, []);
+
+  const eff: ApiStage[] = stages ?? fallbackStages();
+  const liveMode = stages !== null;
+  const totalCoupons = eff.reduce((a, s) => a + s.total, 0);
+  const totalOpen = eff.reduce((a, s) => a + s.unlockedCount, 0);
+  const nextLocked = eff
+    .flatMap((s) => s.items)
+    .filter((i) => i.state === "LOCKED")
+    .sort((a, b) => a.need - b.need)[0] ?? null;
 
   const copy = useCallback(async (code: string) => {
     // Safe copy — stale APK me native module nahi hota, waha false milta hai (no redbox).
@@ -142,13 +147,26 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
     }
   }, [tr]);
 
-  const apply = useCallback(async (c: CouponVM) => {
-    setBusy(c.code);
+  const applyItem = useCallback(async (item: ApiStageItem) => {
+    const code = String(item.coupon.code ?? "").toUpperCase();
+    setBusy(code);
     setMsg("");
     try {
+      // STRICT — UNLOCKED ke bina select bhi nahi (empty cart pe bhi nahi).
+      if (item.state !== "UNLOCKED" || !item.unlocked) {
+        const mv = Number(item.coupon.minOrderValue ?? 0);
+        if (item.state === "USED") setMsg(tr("stgUsedMsg", { code }));
+        else if (item.state === "EXPIRED") setMsg(tr("stgExpiredMsg", { code }));
+        else if (item.need <= 0) setMsg(tr("stgReqFirst"));
+        else setMsg(mv > 0
+          ? tr("msLockedMsgVal", { code, need: item.need, v: mv })
+          : tr("msLockedMsg", { code, need: item.need }));
+        blip(320);
+        return;
+      }
       const sub = cartTotal();
       if (sub > 0) {
-        const v = await apiValidateCoupon(c.code, sub);
+        const v = await apiValidateCoupon(code, sub);
         if (!v?.ok) {
           setCouponProof(null);
           setMsg(v?.error || tr("cpnApplyFail"));
@@ -156,125 +174,201 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
           return;
         }
         // Server proof save — bina iske checkout me discount ZERO (fail-closed).
-        setCouponProof({ code: c.code, discount: Number(v.discount ?? 0), fundedBy: (v.coupon as ApiCoupon | undefined)?.fundedBy ?? null, storeKey: (v.coupon as ApiCoupon | undefined)?.storeKey ?? null, at: Date.now() });
+        setCouponProof({ code, discount: Number(v.discount ?? 0), fundedBy: (v.coupon as ApiCoupon | undefined)?.fundedBy ?? null, storeKey: (v.coupon as ApiCoupon | undefined)?.storeKey ?? null, at: Date.now() });
       } else {
         // Empty cart: select only, proof checkout pe CouponStrip se verify hoga.
         setCouponProof(null);
       }
-      set({ coupon: c.code });
+      set({ coupon: code });
       blip(920, 0.15);
       onClose();
     } finally {
       setBusy("");
     }
-  }, [cartTotal, onClose, set, setCouponProof]);
+  }, [cartTotal, onClose, set, setCouponProof, tr]);
 
   return (
     <PSheet onClose={onClose}>
       <PHead title={t("shCoupons")} onClose={onClose} />
       {msg ? <Text style={{ marginTop: 10, fontFamily: F.bold, fontSize: 12, color: "#E23744" }}>{msg}</Text> : null}
-      <View style={{ marginTop: 12, gap: 10 }}>
-        {list.map((c) => {
-          const on = activeCoupon === c.code;
-          return (
-            <View key={c.code} style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: on ? 2 : 1, borderColor: on ? "#0C831F" : colors.line, borderStyle: on ? "solid" : "dashed", padding: 14 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{c.code}</Text>
-                {on ? <Check size={15} color="#0C831F" /> : null}
-                {copied === c.code ? <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{tr("comCopied")}</Text> : null}
-              </View>
-              <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 12.5, color: colors.ink }}>{c.title}</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{c.detail}</Text>
-              <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
-                <Pressable onPress={() => void copy(c.code)} style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 11 }}>
-                  <Copy size={14} color={colors.ink} />
-                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("cpnCopyBtn")}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => void apply(c)}
-                  disabled={!!busy}
-                  style={{ flex: 1, borderRadius: 12, backgroundColor: on ? "#0C831F" : "#E23744", paddingVertical: 11, alignItems: "center", opacity: busy ? 0.6 : 1 }}
-                >
-                  <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#fff" }}>{busy === c.code ? tr("cartChecking") : on ? tr("cpnApplied") : tr("cpnApply")}</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-      {ms.length > 0 && (
-        <View style={{ marginTop: 18 }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{tr("msTitle")}</Text>
-          <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{tr("msSub")}</Text>
-          <View style={{ marginTop: 10, gap: 10 }}>
-            {ms.map((m) => {
-              const c = m.coupon;
-              const code = String(c.code ?? "").toUpperCase();
-              const on = activeCoupon === code;
-              const minVal = Number(c.minOrderValue ?? 0);
-              const pct = m.need > 0 ? Math.min(100, Math.round((m.have / m.need) * 100)) : 100;
-              const lockedMsg = minVal > 0
-                ? tr("msLockedMsgVal", { code, need: m.need, v: minVal })
-                : tr("msLockedMsg", { code, need: m.need });
-              return (
-                <View key={code} style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: m.unlocked ? 2 : 1, borderColor: m.unlocked ? "#0C831F" : colors.line, opacity: m.unlocked ? 1 : 0.92, padding: 14 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{code}</Text>
-                    {on ? <Check size={15} color="#0C831F" /> : null}
-                    {!m.unlocked && (
-                      <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("msLockedTag")}</Text>
-                      </View>
-                    )}
-                    {m.unlocked && !on && (
-                      <View style={{ borderRadius: 999, backgroundColor: "rgba(12,131,31,.12)", paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#0C831F" }}>{tr("msUnlocked")}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 12.5, color: colors.ink }}>{String(c.title ?? code)}</Text>
-                  <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{String(c.detail ?? "")}</Text>
-                  <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View style={{ flex: 1, height: 8, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
-                      <View style={{ height: "100%", width: `${pct}%`, borderRadius: 999, backgroundColor: m.unlocked ? "#0C831F" : "#E8A33D" }} />
-                    </View>
-                    <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink2 }}>{tr("msProgress", { have: m.have, need: m.need })}</Text>
-                  </View>
-                  <Text style={{ marginTop: 4, fontFamily: F.semi, fontSize: 11, color: m.unlocked ? "#0C831F" : colors.ink3 }}>
-                    {m.unlocked
-                      ? tr("msUnlocked")
-                      : minVal > 0
-                        ? tr("msNeedMoreVal", { n: m.need - m.have, v: minVal })
-                        : tr("msNeedMore", { n: m.need - m.have })}
-                  </Text>
-                  <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
-                    <Pressable onPress={() => void copy(code)} style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 11 }}>
-                      <Copy size={14} color={colors.ink} />
-                      <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("cpnCopyBtn")}</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        if (!m.unlocked) {
-                          setMsg(lockedMsg);
-                          blip(320);
-                          return;
-                        }
-                        void apply({ code, title: String(c.title ?? code), detail: String(c.detail ?? ""), minOrder: Number(c.minOrder ?? 0) });
-                      }}
-                      disabled={!!busy}
-                      style={{ flex: 1, borderRadius: 12, backgroundColor: !m.unlocked ? colors.chip : on ? "#0C831F" : "#E23744", paddingVertical: 11, alignItems: "center", opacity: busy ? 0.6 : 1 }}
-                    >
-                      <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: !m.unlocked ? colors.ink3 : "#fff" }}>
-                        {busy === code ? tr("cartChecking") : on ? tr("cpnApplied") : m.unlocked ? tr("cpnApply") : tr("msLockedTag")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })}
+      {/* Hero — kitne successful orders, kitne open, agla kya */}
+      <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: "#111117", padding: 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ height: 48, width: 48, borderRadius: 15, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 24 }}>🏆</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{tr("stgRewards")}</Text>
+            <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.7)" }}>
+              {tr("stgDelivered", { d: delivered })} • {tr("stgOpenCount", { u: totalOpen, t: totalCoupons })}
+            </Text>
+          </View>
+          <View style={{ borderRadius: 999, backgroundColor: "rgba(255,255,255,.15)", paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#F8CB46" }}>{totalOpen}/{totalCoupons} 🏆</Text>
           </View>
         </View>
-      )}
+        <View style={{ marginTop: 10, height: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,.15)", overflow: "hidden" }}>
+          <View style={{ height: "100%", width: `${totalCoupons ? Math.round((totalOpen / totalCoupons) * 100) : 0}%`, borderRadius: 999, backgroundColor: "#34D399" }} />
+        </View>
+        <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 11.5, color: "#F8CB46" }}>
+          {!nextLocked
+            ? tr("msAllDone")
+            : nextLocked.need <= 0
+              ? `${String(nextLocked.coupon.code ?? "").toUpperCase()} • ${tr("stgFirstOrder")}`
+              : tr("msNextShort", {
+                  code: String(nextLocked.coupon.code ?? "").toUpperCase(),
+                  have: nextLocked.have, need: nextLocked.need,
+                  n: Math.max(0, nextLocked.need - Number(nextLocked.have ?? 0)),
+                })}
+        </Text>
+        {!liveMode ? (
+          <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "rgba(255,255,255,.55)" }}>{tr("stgOffline")}</Text>
+        ) : null}
+      </View>
+      {/* Reward table — kitne successful orders pe kaunsa coupon */}
+      <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+        <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 1.5, color: colors.ink3 }}>{tr("stgTable")}</Text>
+        <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{tr("stgTableSub")}</Text>
+        <View style={{ marginTop: 6 }}>
+          {eff.map((s, six) => {
+            const done = s.total > 0 && s.unlockedCount === s.total;
+            const codes = s.items.map((i) => String(i.coupon.code ?? "").toUpperCase()).join("  •  ");
+            return (
+              <View key={s.need} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: six === eff.length - 1 ? 0 : 1, borderBottomColor: colors.line }}>
+                <View style={{ height: 42, width: 42, borderRadius: 13, backgroundColor: done ? "rgba(12,131,31,.12)" : s.unlockedCount > 0 ? "rgba(232,163,61,.18)" : colors.chip, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: s.need === 0 ? 18 : 15, color: done ? "#0C831F" : s.unlockedCount > 0 ? "#9A6A12" : colors.ink3 }}>
+                    {s.need === 0 ? "🎁" : String(s.need)}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text numberOfLines={2} style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{codes}</Text>
+                  <Text style={{ marginTop: 1, fontFamily: F.bold, fontSize: 10.5, color: colors.ink3 }}>
+                    {s.need <= 0 ? tr("stgFirstOrder") : tr("stgNeedN", { need: s.need })}
+                  </Text>
+                </View>
+                {done ? (
+                  <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#0C831F" }}>✓</Text>
+                ) : s.unlockedCount > 0 ? (
+                  <View style={{ borderRadius: 999, backgroundColor: "rgba(232,163,61,.18)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#9A6A12" }}>{s.unlockedCount}/{s.total}</Text>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 14 }}>🔒</Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+      {eff.map((s, six) => {
+        const allOpen = s.total > 0 && s.unlockedCount === s.total;
+        const stageLabel = s.need === 0
+          ? `${tr("stgWelcome").toUpperCase()} • ${tr("stgFirstOrder").toUpperCase()}`
+          : `${tr("stgStageN", { n: six }).toUpperCase()} • ${tr("stgNeedN", { need: s.need }).toUpperCase()}`;
+        return (
+          <View key={s.need} style={{ marginTop: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ flex: 1, fontFamily: F.extra, fontSize: 11, letterSpacing: 1.2, color: colors.ink3 }}>{stageLabel}</Text>
+              <View style={{ borderRadius: 999, backgroundColor: allOpen ? "rgba(12,131,31,.12)" : s.unlockedCount > 0 ? "rgba(232,163,61,.18)" : colors.chip, paddingHorizontal: 10, paddingVertical: 4 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: allOpen ? "#0C831F" : s.unlockedCount > 0 ? "#9A6A12" : colors.ink3 }}>
+                  {tr("stgOpenCount", { u: s.unlockedCount, t: s.total })}
+                </Text>
+              </View>
+            </View>
+            <View style={{ marginTop: 8, gap: 10 }}>
+              {s.items.map((item) => {
+                const cc = item.coupon;
+                const code = String(cc.code ?? "").toUpperCase();
+                const on = activeCoupon === code;
+                const open = item.state === "UNLOCKED" && item.unlocked;
+                const locked = item.state === "LOCKED";
+                const used = item.state === "USED";
+                const expired = item.state === "EXPIRED";
+                const haveN = Number(item.have ?? 0);
+                const pct = item.need > 0 ? Math.min(100, Math.round((haveN / item.need) * 100)) : open ? 100 : 0;
+                return (
+                  <View key={code} style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: open || on ? 2 : 1, borderColor: open || on ? "#0C831F" : colors.line, borderStyle: locked ? "dashed" : "solid", opacity: locked ? 0.66 : 1, padding: 14 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Text style={{ fontFamily: F.extra, fontSize: 16, color: colors.ink }}>{locked ? "🔒 " : ""}{code}</Text>
+                      {on && open ? <Check size={15} color="#0C831F" /> : null}
+                      {copied === code && open ? <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{tr("comCopied")}</Text> : null}
+                      {open ? (
+                        <View style={{ borderRadius: 999, backgroundColor: "rgba(12,131,31,.12)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#0C831F" }}>{tr("msUnlocked")}</Text>
+                        </View>
+                      ) : locked ? (
+                        <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("msLockedTag")}</Text>
+                        </View>
+                      ) : used ? (
+                        <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("stgUsedTag")}</Text>
+                        </View>
+                      ) : (
+                        <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("stgExpiredTag")}</Text>
+                        </View>
+                      )}
+                      {(item.cycles ?? 0) > 0 ? (
+                        <View style={{ borderRadius: 999, backgroundColor: "rgba(232,163,61,.18)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#9A6A12" }}>🔁×{item.cycles}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 12.5, color: colors.ink }}>{String(cc.title ?? code)}</Text>
+                    <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{String(cc.detail ?? "")}</Text>
+                    <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>
+                      {tr("stgMinOrder", { x: Number(cc.minOrder ?? 0) })}
+                    </Text>
+                    {item.need > 0 ? (
+                      <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View style={{ flex: 1, height: 8, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
+                          <View style={{ height: "100%", width: `${pct}%`, borderRadius: 999, backgroundColor: open ? "#0C831F" : "#E8A33D" }} />
+                        </View>
+                        <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink2 }}>{tr("msProgress", { have: haveN, need: item.need })}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={{ marginTop: 4, fontFamily: F.semi, fontSize: 11, color: open ? "#0C831F" : colors.ink3 }}>
+                      {open
+                        ? (item.need <= 0 ? `✓ ${tr("stgFirstOrder")}` : `✓ ${tr("stgNeedN", { need: item.need })}`)
+                        : locked
+                          ? (item.need <= 0 ? tr("stgReqFirst") : tr("stgReqN", { need: item.need }))
+                          : used
+                            ? tr("stgUsedNote")
+                            : tr("stgExpiredNote")}
+                    </Text>
+                    {open ? (
+                      <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
+                        <Pressable onPress={() => void copy(code)} style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 11 }}>
+                          <Copy size={14} color={colors.ink} />
+                          <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("cpnCopyBtn")}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => void applyItem(item)}
+                          disabled={!!busy}
+                          style={{ flex: 1, borderRadius: 12, backgroundColor: on ? "#0C831F" : "#E23744", paddingVertical: 11, alignItems: "center", opacity: busy ? 0.6 : 1 }}
+                        >
+                          <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#fff" }}>{busy === code ? tr("cartChecking") : on ? tr("cpnApplied") : tr("cpnApply")}</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => void applyItem(item)}
+                        disabled={!!busy}
+                        style={{ marginTop: 10, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 11, alignItems: "center", opacity: busy ? 0.6 : 1 }}
+                      >
+                        <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink3 }}>
+                          {busy === code ? tr("cartChecking") : locked ? tr("stgLockedBtn") : used ? tr("stgUsedTag") : tr("stgExpiredTag")}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
       <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 11, color: colors.ink3, textAlign: "center" }}>
         {tr("cpnNote")}
       </Text>

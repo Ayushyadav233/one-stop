@@ -76,6 +76,8 @@ async function doSeed() {
       offPct: (cp as unknown as { offPct?: number }).offPct ?? 20,
       maxOff: (cp as unknown as { maxOff?: number }).maxOff ?? 120,
       minOrder: (cp as unknown as { minOrder?: number }).minOrder ?? 149,
+      minOrders: (cp as unknown as { minOrders?: number }).minOrders ?? 0,
+      firstOrderOnly: !!(cp as unknown as { firstOrderOnly?: boolean }).firstOrderOnly,
     });
   }
   return { ok: true as const, seeded: true as const, stores: STORES.length, products: PRODUCTS.length };
@@ -129,6 +131,8 @@ async function topUpMissing(): Promise<{ products: number; coupons: number }> {
         offPct: (cp as unknown as { offPct?: number }).offPct ?? 20,
         maxOff: (cp as unknown as { maxOff?: number }).maxOff ?? 120,
         minOrder: (cp as unknown as { minOrder?: number }).minOrder ?? 149,
+        minOrders: (cp as unknown as { minOrders?: number }).minOrders ?? 0,
+        firstOrderOnly: !!(cp as unknown as { firstOrderOnly?: boolean }).firstOrderOnly,
       });
       out.coupons++;
     }

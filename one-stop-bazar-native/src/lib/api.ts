@@ -200,8 +200,18 @@ export function apiValidateCoupon(code: string, subtotal: number, storeKey?: str
     10000
   );
 }
-/** Loyalty ladder + per-user progress (auth). Fail-soft [] when offline. */
-export type ApiMilestone = { coupon: ApiCoupon; need: number; have: number; unlocked: boolean };
+/** Loyalty ladder + per-user progress (auth). Fail-soft [] when offline. have = current-cycle progress, cycles = poore hue cycle. */
+export type ApiMilestone = { coupon: ApiCoupon; need: number; have: number; unlocked: boolean; cycles?: number; uses?: number };
+/** STRICT reward table — har coupon apne stage + state ke saath (single source: /stages). */
+export type StageState = "UNLOCKED" | "LOCKED" | "USED" | "EXPIRED";
+export type ApiStageItem = { coupon: ApiCoupon; need: number; have: number; unlocked: boolean; state: StageState; uses?: number; cycles?: number };
+export type ApiStage = { need: number; have: number; unlockedCount: number; total: number; items: ApiStageItem[] };
+export function apiGetStages() {
+  return json<{ stages?: ApiStage[]; delivered?: number }>("/api/coupons/stages", undefined, 10000).then((j) => ({
+    stages: Array.isArray(j?.stages) ? j!.stages! : [],
+    delivered: Number(j?.delivered ?? 0),
+  }));
+}
 export function apiGetMilestones() {
   return json<{ milestones?: ApiMilestone[] }>("/api/coupons/milestones", undefined, 10000).then((j) =>
     Array.isArray(j?.milestones) ? j!.milestones! : []

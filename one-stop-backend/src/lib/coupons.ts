@@ -20,7 +20,7 @@ function inWindow(cp: CouponRow, now = Date.now()): boolean {
   return true;
 }
 
-async function userUseCount(userId: string, couponId: string): Promise<number> {
+export async function userUseCount(userId: string, couponId: string): Promise<number> {
   try {
     const r = await db.execute(
       sql`select count(*)::int as n from osb_coupon_uses where user_id = ${userId} and coupon_id = ${couponId}`,
@@ -31,7 +31,7 @@ async function userUseCount(userId: string, couponId: string): Promise<number> {
   }
 }
 
-async function userOrderCount(phone: string): Promise<number> {
+export async function userOrderCount(phone: string): Promise<number> {
   try {
     const r = await db.execute(sql`select count(*)::int as n from osb_orders where customer_phone = ${phone}`);
     return Number((r.rows?.[0] as { n?: number } | undefined)?.n ?? 0);
@@ -90,8 +90,28 @@ export async function checkCoupon(
   const minOrder = Number(cp.minOrder ?? 0);
   if (subtotal < minOrder) return { ok: false, error: `min order ₹${minOrder} pe lagega` };
   // Per-user limit.
-  const perUser = Number(cp.maxUsesPerUser ?? 1);
-  if (perUser > 0) {
+  // Stage (milestone) coupons REPEAT hote hain: har `need` delivered orders
+  // pe 1 naya use milta hai (10 orders = poori cycle repeat, sab stages wapas).
+  // maxUsesPerUser = 1 cycle me kitne use (default 1).
+  const perUserRaw = Number(cp.maxUsesPerUser ?? 1);
+  const perUser = perUserRaw > 0 ? perUserRaw : 0; // 0 = unlimited (non-stage only)
+  const stageNeed = Number(cp.minOrders ?? 0);
+  if (stageNeed > 0) {
+    const minVal = Number(cp.minOrderValue ?? 0);
+    const total = await userQualifiedOrders(user.phone, minVal);
+    const allowed = perUser > 0 ? Math.floor(total / stageNeed) * perUser : total >= stageNeed ? Number.MAX_SAFE_INTEGER : 0;
+    const used = await userUseCount(user.id, cp.id);
+    if (used >= allowed) {
+      const prog = total % stageNeed;
+      const more = stageNeed - prog; // prog 0 → poora agla cycle baaki
+      return {
+        ok: false,
+        error: minVal > 0
+          ? `locked — ${more} aur ₹${minVal}+ order pe unlock`
+          : `locked — ${more} aur order pe unlock`,
+      };
+    }
+  } else if (perUser > 0) {
     const used = await userUseCount(user.id, cp.id);
     if (used >= perUser) return { ok: false, error: "tum ye coupon use kar chuke ho" };
   }

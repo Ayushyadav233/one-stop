@@ -260,6 +260,39 @@ export const COUPONS = [
   { code: "FREEDEL", title: "Free delivery", detail: "On 3 orders this week", offPct: 100, maxOff: 35, minOrder: 99 },
 ];
 
+/**
+ * Milestone ladder fallback — backend /milestones khaali/offline ho tab bhi
+ * stage journey dikhe (progress 0/need, login pe live). Server hi source of
+ * truth hai (validate fail-closed), ye sirf display fallback hai.
+ */
+export const MILESTONE_FALLBACK = [
+  { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", minOrder: 149, minOrderValue: 0, need: 3 },
+  { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", minOrder: 199, minOrderValue: 0, need: 5 },
+  { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", minOrder: 299, minOrderValue: 199, need: 5 },
+  { code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", minOrder: 499, minOrderValue: 0, need: 10 },
+];
+
+/**
+ * STRICT reward table fallback — /stages offline ho tab bhi poori table
+ * dikhe (sab LOCKED, login + internet pe live). Server single source hai.
+ */
+export const STAGE_FALLBACK: { need: number; coupons: { code: string; title: string; detail: string; minOrder: number; minOrderValue?: number; firstOrderOnly?: boolean }[] }[] = [
+  { need: 0, coupons: [{ code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", minOrder: 199, firstOrderOnly: true }] },
+  { need: 1, coupons: [
+    { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", minOrder: 149 },
+    { code: "HOMESERVE", title: "₹200 OFF home services", detail: "1 successful order • first service booking", minOrder: 499 },
+  ] },
+  { need: 3, coupons: [
+    { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", minOrder: 149 },
+    { code: "FREEDEL", title: "Free delivery", detail: "3 successful orders • min ₹99", minOrder: 99 },
+  ] },
+  { need: 5, coupons: [
+    { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", minOrder: 199 },
+    { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", minOrder: 299, minOrderValue: 199 },
+  ] },
+  { need: 10, coupons: [{ code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", minOrder: 499 }] },
+];
+
 export function greetingForHour(h: number, lang: "en" | "hi" = "en") {
   if (lang === "hi") {
     if (h < 5) return { label: "आधी रात की क्रेविंग?", sub: "24×7 दवा, आइसक्रीम और आराम", mood: "night" as const };

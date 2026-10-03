@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { coupons } from "../db/schema.js";
 import { auth, getUser } from "../middleware/auth.js";
-import { checkCoupon, userQualifiedOrders } from "../lib/coupons.js";
+import { checkCoupon, userOrderCount, userQualifiedOrders, userUseCount } from "../lib/coupons.js";
 import { logInfo, logWarn } from "../lib/logger.js";
 
 export const couponsRoute = new Hono();
@@ -137,16 +137,90 @@ couponsRoute.get("/milestones", auth, async (c) => {
       if (r.maxUsesTotal != null && Number(r.usesTotal ?? 0) >= Number(r.maxUsesTotal)) return false;
       return true;
     });
-    const out: { coupon: ReturnType<typeof publicCoupon>; need: number; have: number; unlocked: boolean }[] = [];
+    const out: { coupon: ReturnType<typeof publicCoupon>; need: number; have: number; unlocked: boolean; cycles: number; uses: number }[] = [];
     for (const r of live) {
-      const need = Number(r.minOrders ?? 0);
-      const have = await userQualifiedOrders(u.phone, Number(r.minOrderValue ?? 0));
-      out.push({ coupon: publicCoupon(r), need, have: Math.min(have, need), unlocked: have >= need });
+      const need = Math.max(1, Number(r.minOrders ?? 0));
+      const total = await userQualifiedOrders(u.phone, Number(r.minOrderValue ?? 0));
+      // Repeat cycle: har `need` orders pe 1 naya use. have = current-cycle progress.
+      const perUser = Number(r.maxUsesPerUser ?? 1) > 0 ? Number(r.maxUsesPerUser ?? 1) : 1;
+      const uses = await userUseCount(u.id, r.id);
+      const cycles = Math.floor(total / need);
+      const unlocked = cycles * perUser > uses;
+      const prog = total % need;
+      const have = prog === 0 ? (total > 0 && unlocked ? need : 0) : prog;
+      out.push({ coupon: publicCoupon(r), need, have, unlocked, cycles, uses });
     }
     out.sort((a, b) => a.need - b.need);
     return c.json({ milestones: out });
   } catch {
     return c.json({ milestones: [] });
+  }
+});
+
+// GET /api/coupons/stages (auth) — STRICT reward table (single source).
+// Har platform coupon apne stage + per-user state ke saath:
+//   UNLOCKED (lagao) • LOCKED (requirement baaki) • USED (cycle use ho chuka) • EXPIRED (first-order wala, order ho chuka).
+// App reward table + locked cards seedha yahi se bante hain.
+export type StageState = "UNLOCKED" | "LOCKED" | "USED" | "EXPIRED";
+couponsRoute.get("/stages", auth, async (c) => {
+  const u = getUser(c);
+  try {
+    const rows = await db.select().from(coupons).limit(100);
+    const now = Date.now();
+    const deliveredAll = await userQualifiedOrders(u.phone, 0);
+    const orderCountAll = await userOrderCount(u.phone);
+    const items: {
+      coupon: ReturnType<typeof publicCoupon>; need: number; have: number;
+      unlocked: boolean; state: StageState; uses: number; cycles: number;
+    }[] = [];
+    for (const r of rows) {
+      if ((r.fundedBy ?? "platform") !== "platform") continue;
+      if (r.active === false) continue;
+      if (r.startsAt && new Date(r.startsAt).getTime() > now) continue;
+      if (r.expiresAt && new Date(r.expiresAt).getTime() < now) continue;
+      if (r.maxUsesTotal != null && Number(r.usesTotal ?? 0) >= Number(r.maxUsesTotal)) continue;
+      const need = Math.max(0, Number(r.minOrders ?? 0));
+      const perUser = Number(r.maxUsesPerUser ?? 1) > 0 ? Number(r.maxUsesPerUser ?? 1) : 1;
+      const uses = await userUseCount(u.id, r.id);
+      let have = 0;
+      let unlocked = false;
+      let state: StageState = "LOCKED";
+      let cycles = 0;
+      if (r.firstOrderOnly) {
+        // Welcome stage — sirf tab jab abhi tak koi order hi nahi hua.
+        unlocked = orderCountAll === 0 && uses === 0;
+        state = uses > 0 ? "USED" : orderCountAll > 0 ? "EXPIRED" : "UNLOCKED";
+      } else if (need > 0) {
+        const total = await userQualifiedOrders(u.phone, Number(r.minOrderValue ?? 0));
+        cycles = Math.floor(total / need);
+        unlocked = cycles * perUser > uses;
+        const prog = total % need;
+        have = prog === 0 ? (total > 0 && unlocked ? need : 0) : prog;
+        state = unlocked ? "UNLOCKED" : have >= need ? "USED" : "LOCKED";
+      } else {
+        unlocked = uses < perUser;
+        state = unlocked ? "UNLOCKED" : "USED";
+      }
+      items.push({ coupon: publicCoupon(r), need, have, unlocked, state, uses, cycles });
+    }
+    const byNeed = new Map<number, typeof items>();
+    for (const it of items) {
+      const arr = byNeed.get(it.need) ?? [];
+      arr.push(it);
+      byNeed.set(it.need, arr);
+    }
+    const stages = [...byNeed.entries()]
+      .map(([need, list]) => ({
+        need,
+        have: Math.min(deliveredAll, need),
+        unlockedCount: list.filter((i) => i.unlocked).length,
+        total: list.length,
+        items: list,
+      }))
+      .sort((a, b) => a.need - b.need);
+    return c.json({ stages, delivered: deliveredAll });
+  } catch {
+    return c.json({ stages: [], delivered: 0 });
   }
 });
 

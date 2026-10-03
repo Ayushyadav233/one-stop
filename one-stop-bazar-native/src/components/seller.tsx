@@ -97,6 +97,27 @@ export function isServiceOnlySeller(cats: string[]): boolean {
   return cats.length > 0 && cats.every((k) => k === "service");
 }
 
+/** Service/delivery radius — min 500 m, 1 km ke steps me max 15 km. */
+export const RADIUS_MIN = 0.5;
+export const RADIUS_MAX = 15;
+export function fmtRadius(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km} km`;
+}
+/** Stepper minus: 1 km se neeche 500 m, usse neeche nahi. */
+export function radiusMinus(km: number): number {
+  if (km <= 1) return RADIUS_MIN;
+  return Math.max(1, Math.round((km - 1) * 10) / 10);
+}
+/** Stepper plus: 500 m se seedha 1 km, phir +1 km. */
+export function radiusPlus(km: number): number {
+  if (km < 1) return 1;
+  return Math.min(RADIUS_MAX, Math.round((km + 1) * 10) / 10);
+}
+/** Progress bar fill % (0.5–15 km range pe). */
+export function radiusPct(km: number): number {
+  return Math.max(0, Math.min(100, ((km - RADIUS_MIN) / (RADIUS_MAX - RADIUS_MIN)) * 100));
+}
+
 function formConfig(label: string, sellerCats: string[]): FormCfg {
   const def =
     CATEGORIES.find((c) => c.t === label || c.subs.includes(label)) ??
@@ -947,7 +968,7 @@ export function SellerManage() {
         <View style={{ flex: 1 }}>
           <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{seller.storeOpen ? "Store is LIVE" : "Store is CLOSED"}</Text>
           <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-            {seller.storeOpen ? `Visible within ${seller.radiusKm} km • ${seller.openTime}–${seller.closeTime}` : "Customers see you as closed"}
+            {seller.storeOpen ? `Visible within ${fmtRadius(seller.radiusKm)} • ${seller.openTime}–${seller.closeTime}` : "Customers see you as closed"}
           </Text>
         </View>
         <Tog on={seller.storeOpen} onTap={() => setSeller({ storeOpen: !seller.storeOpen })} />
@@ -988,28 +1009,28 @@ export function SellerManage() {
             <Text style={{ fontSize: 22 }}>🏪</Text>
           </View>
           <View style={{ position: "absolute", right: -4, top: 8, borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#111114" }}>~{(seller.radiusKm * 3.14 * seller.radiusKm).toFixed(0)} km²</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#111114" }}>~{(() => { const a = seller.radiusKm * 3.14 * seller.radiusKm; return a < 10 ? a.toFixed(1) : a.toFixed(0); })()} km²</Text>
           </View>
           <Text style={{ position: "absolute", left: -8, bottom: 12, fontSize: 20 }}>🏠</Text>
           <Text style={{ position: "absolute", right: 24, bottom: 24, fontSize: 16 }}>🏠</Text>
         </View>
         <View style={{ marginTop: 8, alignItems: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 26, color: "#F8CB46" }}>{seller.radiusKm} km</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 26, color: "#F8CB46" }}>{fmtRadius(seller.radiusKm)}</Text>
           <Text style={{ fontFamily: F.semi, fontSize: 11, color: "rgba(255,255,255,.6)" }}>Customers inside this circle see your store LIVE</Text>
         </View>
         <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Pressable onPress={() => setSeller({ radiusKm: Math.max(1, seller.radiusKm - 1) })} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.1)", alignItems: "center", justifyContent: "center" }}>
+          <Pressable onPress={() => setSeller({ radiusKm: radiusMinus(seller.radiusKm) })} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.1)", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontFamily: F.extra, fontSize: 18, color: "#fff" }}>−</Text>
           </Pressable>
           <View style={{ flex: 1, height: 6, borderRadius: 999, backgroundColor: "rgba(255,255,255,.15)", overflow: "hidden" }}>
-            <View style={{ height: "100%", borderRadius: 999, backgroundColor: "#F8CB46", width: `${((seller.radiusKm - 1) / 14) * 100}%` }} />
+            <View style={{ height: "100%", borderRadius: 999, backgroundColor: "#F8CB46", width: `${radiusPct(seller.radiusKm)}%` }} />
           </View>
-          <Pressable onPress={() => setSeller({ radiusKm: Math.min(15, seller.radiusKm + 1) })} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.1)", alignItems: "center", justifyContent: "center" }}>
+          <Pressable onPress={() => setSeller({ radiusKm: radiusPlus(seller.radiusKm) })} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.1)", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontFamily: F.extra, fontSize: 18, color: "#fff" }}>+</Text>
           </Pressable>
         </View>
         <View style={{ marginTop: 4, flexDirection: "row", justifyContent: "space-between" }}>
-          {["1 KM", "5 KM", "10 KM", "15 KM"].map((t) => (
+          {["500 M", "1 KM", "5 KM", "10 KM", "15 KM"].map((t) => (
             <Text key={t} style={{ fontFamily: F.extra, fontSize: 10, color: "rgba(255,255,255,.5)" }}>{t}</Text>
           ))}
         </View>
@@ -1573,16 +1594,16 @@ export function SellerOnboarding() {
               </Text>
             </View>
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16, alignItems: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 34, color: svcOnly ? "#7C5CFF" : "#0C831F" }}>{seller.radiusKm} km</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 34, color: svcOnly ? "#7C5CFF" : "#0C831F" }}>{fmtRadius(seller.radiusKm)}</Text>
               <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{svcOnly ? "service area" : "delivery area"}</Text>
               <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 12, width: "100%" }}>
-                <Pressable onPress={() => setSeller({ radiusKm: Math.max(1, seller.radiusKm - 1) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={() => setSeller({ radiusKm: radiusMinus(seller.radiusKm) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 18, color: colors.ink }}>−</Text>
                 </Pressable>
                 <View style={{ flex: 1, height: 8, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
-                  <View style={{ height: "100%", backgroundColor: svcOnly ? "#7C5CFF" : "#0C831F", width: `${((seller.radiusKm - 1) / 14) * 100}%` }} />
+                  <View style={{ height: "100%", backgroundColor: svcOnly ? "#7C5CFF" : "#0C831F", width: `${radiusPct(seller.radiusKm)}%` }} />
                 </View>
-                <Pressable onPress={() => setSeller({ radiusKm: Math.min(15, seller.radiusKm + 1) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={() => setSeller({ radiusKm: radiusPlus(seller.radiusKm) })} style={{ height: 40, width: 40, borderRadius: 20, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 18, color: colors.ink }}>+</Text>
                 </Pressable>
               </View>

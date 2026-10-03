@@ -238,17 +238,28 @@ export const CATS = [
   { k: "meds", t: "Meds", img: IMG.meds },
 ];
 
+/**
+ * Platform coupons — STRICT stage-gating: jitne successful (delivered) orders,
+ * utne bade offers. minOrders = stage requirement (server + app dono enforce).
+ * Stage table (single source — app reward table yahi se banti hai):
+ *   0 (welcome, first order) → BAZAR50
+ *   1+ → FRESH20, HOMESERVE
+ *   3+ → LOYAL3, FREEDEL
+ *   5+ → LOYAL5, BIGSHOP5
+ *   10+ → CHAMP10 (phir har cycle repeat 🔁)
+ */
 export const COUPONS = [
-  { code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", offPct: 50, maxOff: 100, minOrder: 199 },
-  { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", offPct: 20, maxOff: 80, minOrder: 149 },
-  { code: "HOMESERVE", title: "₹200 OFF home services", detail: "On first service booking", offPct: 25, maxOff: 200, minOrder: 499 },
-  { code: "FREEDEL", title: "Free delivery", detail: "On 3 orders this week", offPct: 100, maxOff: 35, minOrder: 99 },
+  { code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", offPct: 50, maxOff: 100, minOrder: 199, minOrders: 0, firstOrderOnly: true },
+  { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", offPct: 20, maxOff: 80, minOrder: 149, minOrders: 1 },
+  { code: "HOMESERVE", title: "₹200 OFF home services", detail: "1 successful order • first service booking", offPct: 25, maxOff: 200, minOrder: 499, minOrders: 1 },
+  { code: "FREEDEL", title: "Free delivery", detail: "3 successful orders • min ₹99", offPct: 100, maxOff: 35, minOrder: 99, minOrders: 3 },
 ];
 
 /**
- * Loyalty ladder — target pura → coupon unlock (single-use each).
- * No-loss math: har coupon pe maxOff cap + minOrder floor + maxUsesPerUser 1
- * + maxBudget global cap. Sirf DELIVERED orders ginte hain (cancel nahi).
+ * Loyalty ladder — target pura → coupon unlock, har cycle me 1 use.
+ * 10 orders = poori cycle repeat (stages wapas unlock hote hain).
+ * No-loss math: har coupon pe maxOff cap + minOrder floor + maxBudget global cap.
+ * Sirf DELIVERED orders ginte hain (cancel nahi).
  */
 export const MILESTONE_COUPONS = [
   { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", offPct: 20, maxOff: 80, minOrder: 149, minOrders: 3, minOrderValue: 0, maxBudget: 20000 },

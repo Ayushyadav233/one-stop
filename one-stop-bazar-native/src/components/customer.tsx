@@ -42,7 +42,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { activeCategories, blip, fastestEta, productEtaText, useMarketplace, useOSB } from "@/lib/osb-store";
-import { apiGetCoupons, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, REFER_REWARD_POINTS, POINTS_PER_RUPEE, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
+import { apiGetStages, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, REFER_REWARD_POINTS, POINTS_PER_RUPEE, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion, type ApiStage } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
 import { useT, useTx, type StrKey } from "@/lib/i18n";
@@ -52,7 +52,7 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { AddStepper, F, Glass, Img, LiveDot, Rating, SectionHead, SpringBtn, VegMark } from "./ui";
 import { EditProfileSheet } from "./profile-setup";
 import { ChangeLocationSheet } from "./location-setup";
-import { CouponsSheet, HelpSheet, ReviewsSheet, SettingsSheet, WalletSheet } from "./profile-sheets";
+import { CouponsSheet, HelpSheet, ReviewsSheet, SettingsSheet, WalletSheet, fallbackStages } from "./profile-sheets";
 
 function useGreeting() {
   const language = useOSB((s) => s.language);
@@ -2513,14 +2513,21 @@ export function ProfileTab() {
     const t = useT();
     const tr = useTx();
    // Live subtitles (backend-first, static fallback) — sheet bandh hote hi refresh.
-   const [couponCount, setCouponCount] = useState(4);
+   const [couponCount, setCouponCount] = useState(7);
    const [revStat, setRevStat] = useState("23 reviews • 4.8 avg");
+   const [stgData, setStgData] = useState<{ stages: ApiStage[]; delivered: number } | null>(null);
    const [sheet, setSheet] = useState<SheetKind>(null);
    const [copiedTick, setCopiedTick] = useState(false);
 
    const refreshStats = () => {
-     apiGetCoupons()
-       .then((rows) => { if (rows.length > 0) setCouponCount(rows.length); })
+     apiGetStages()
+       .then((r) => {
+         if (r.stages.length > 0) {
+           setStgData(r);
+           const total = r.stages.reduce((a, s) => a + s.total, 0);
+           setCouponCount(total);
+         }
+       })
        .catch(() => {});
      apiMyReviews()
        .then((rows) => {
@@ -2571,16 +2578,20 @@ export function ProfileTab() {
     };
 
    const rows = useMemo(() => {
+     const eff = stgData?.stages ?? fallbackStages();
+     const u = eff.reduce((a, s) => a + s.unlockedCount, 0);
+     const tCount = eff.reduce((a, s) => a + s.total, 0);
+     const msSub = `${tCount} active • ${tr("stgOpenCount", { u, t: tCount })}`;
      const base: [string, string, string, SheetKind | "admin"][] = [
        ["🙋", t("youEditProfile"), t("youEditProfileSub"), "edit"],
        ["📍", t("youAddress"), "", "loc"],
-       ["🎟️", t("youCoupons"), `${couponCount} active`, "coupons"],
+       ["🎟️", t("youCoupons"), msSub, "coupons"],
        ["⭐", t("youReviews"), revStat, "reviews"],
      ];
      if (role === "super_admin") base.push(["🛡️", "Super Admin", "Platform control centre", "admin"]);
      base.push(["⚙️", t("youSettings"), t("youSettingsSub"), "settings"], ["💬", t("youHelp"), t("youHelpSub"), "help"]);
      return base;
-   }, [role, couponCount, revStat, t]);
+   }, [role, revStat, stgData, t, tr]);
   const backToDeliveries = useOSB((s) => s.backToDeliveries);
   const { colors } = useTheme();
   const doLogout = () => {
@@ -2702,6 +2713,43 @@ export function ProfileTab() {
             <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? tr("comCopied") : tr("comCopy")}</Text>
           </Pressable>
         </View>
+
+        {/* Milestone short strip — kitna khula / next kitna door (tap = full journey). Fallback pe bhi dikhe. */}
+        {(() => {
+          const eff = stgData?.stages ?? fallbackStages();
+          const items = eff.flatMap((s) => s.items);
+          const nx = items.find((i) => i.state === "LOCKED") ?? null;
+          const u = eff.reduce((a, s) => a + s.unlockedCount, 0);
+          const tCount = eff.reduce((a, s) => a + s.total, 0);
+          const pct = nx && nx.need > 0 ? Math.min(100, Math.round((nx.have / nx.need) * 100)) : 100;
+          const code = nx ? String(nx.coupon.code ?? "").toUpperCase() : "";
+          return (
+            <Pressable
+              onPress={() => { setSheet("coupons"); blip(600); }}
+              style={{ marginTop: 12, borderRadius: 18, backgroundColor: "#111117", padding: 14 }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={{ height: 44, width: 44, borderRadius: 14, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 22 }}>🏆</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>
+                    {nx ? tr("msNextShort", { code, have: nx.have, need: nx.need, n: Math.max(0, nx.need - nx.have) }) : tr("msAllDone")}
+                  </Text>
+                  <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.65)" }}>
+                    {tr("stgOpenCount", { u, t: tCount })} • tap for stages →
+                  </Text>
+                  {nx && nx.need > 0 ? (
+                    <View style={{ marginTop: 8, height: 7, borderRadius: 999, backgroundColor: "rgba(255,255,255,.15)", overflow: "hidden" }}>
+                      <View style={{ height: "100%", width: `${pct}%`, borderRadius: 999, backgroundColor: "#E8A33D" }} />
+                    </View>
+                  ) : null}
+                </View>
+                <ChevronRight size={18} color="rgba(255,255,255,.6)" />
+              </View>
+            </Pressable>
+          );
+        })()}
 
         {/* Refer & Earn banner — code + link share yahi se */}
         <Pressable

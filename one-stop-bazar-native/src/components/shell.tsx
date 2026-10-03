@@ -72,7 +72,7 @@ import {
   PartyPopper,
   type LucideIcon,
 } from "lucide-react-native";
-import { COUPONS, STORES, inr } from "@/lib/data";
+import { COUPONS, MILESTONE_FALLBACK, STORES, inr } from "@/lib/data";
 import { blip, useMarketplace, useOSB, type LiveOrder } from "@/lib/osb-store";
 import { placeCall, resolveStoreCall } from "@/lib/contact";
 import { tFor, useTx } from "@/lib/i18n";
@@ -615,25 +615,50 @@ export function CouponStrip() {
   const tr = useTx();
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
+  // STRICT stages — har coupon apne stage ke saath (unlocked/locked/used/expired).
+  const [stgItems, setStgItems] = useState<{ code: string; title: string; detail: string; need: number; have: number; unlocked: boolean; state: string }[]>([]);
+  useEffect(() => {
+    let live = true;
+    import("@/lib/api").then((m) =>
+      m.apiGetStages().then((r) => {
+        if (!live || r.stages.length === 0) return;
+        setStgItems(
+          r.stages.flatMap((s) =>
+            s.items.map((i) => ({
+              code: String(i.coupon.code ?? "").toUpperCase(),
+              title: String(i.coupon.title ?? ""),
+              detail: String(i.coupon.detail ?? ""),
+              need: i.need, have: i.have, unlocked: i.unlocked, state: i.state,
+            }))
+          )
+        );
+      }).catch(() => {})
+    );
+    return () => { live = false; };
+  }, []);
+  const nextLocked = (stgItems.length > 0
+    ? stgItems.filter((i) => i.state === "LOCKED")
+    : MILESTONE_FALLBACK.map((f) => ({ code: f.code, title: f.title, detail: f.detail, need: f.need, have: 0, unlocked: false, state: "LOCKED" }))
+  ).sort((a, b) => a.need - b.need)[0] ?? null;
+  const unlockedList = stgItems.filter((i) => i.state === "UNLOCKED" && i.unlocked);
   return (
     <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
-      {COUPONS.map((c) => {
-        const on = coupon === c.code && !!couponProof && couponProof.code === c.code;
+      {unlockedList.map((m) => {
+        const on = coupon === m.code && !!couponProof && couponProof.code === m.code;
         return (
           <Pressable
-            key={c.code}
+            key={m.code}
             onPress={() => {
               if (busy) return;
-              setBusy(c.code);
+              setBusy(m.code);
               setErr("");
               blip(760);
-              // Fail-closed: bina server OK ke coupon select nahi hoga.
-              import("@/lib/api").then((m) =>
-                m.apiValidateCoupon(c.code, cartTotal()).then((v) => {
+              import("@/lib/api").then((api) =>
+                api.apiValidateCoupon(m.code, cartTotal()).then((v) => {
                   if (v?.ok) {
-                    set({ coupon: c.code });
-                    setCouponProof({ code: c.code, discount: Number(v.discount ?? 0), fundedBy: v.coupon?.fundedBy ?? null, storeKey: v.coupon?.storeKey ?? null, at: Date.now() });
+                    set({ coupon: m.code });
+                    setCouponProof({ code: m.code, discount: Number(v.discount ?? 0), fundedBy: v.coupon?.fundedBy ?? null, storeKey: v.coupon?.storeKey ?? null, at: Date.now() });
                     blip(920, 0.15);
                   } else {
                     setCouponProof(null);
@@ -651,18 +676,42 @@ export function CouponStrip() {
               width: 210,
               borderRadius: 14,
               borderWidth: 2,
-              borderStyle: "dashed",
-              borderColor: on ? "#0C831F" : colors.line,
-              backgroundColor: on ? "rgba(12,131,31,.06)" : colors.card,
+              borderColor: on ? "#0C831F" : "rgba(12,131,31,.5)",
+              backgroundColor: on ? "rgba(12,131,31,.06)" : "rgba(12,131,31,.08)",
               padding: 12,
             }}
           >
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{c.code}</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink }}>{c.title}</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{busy === c.code ? tr("cartChecking") : c.detail}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#0C831F" }}>🎉 {m.code}</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink }}>{m.title}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: "#0C831F" }}>{busy === m.code ? tr("cartChecking") : tr("msUnlocked")}</Text>
           </Pressable>
         );
       })}
+      {nextLocked ? (
+        <Pressable
+          onPress={() => {
+            const msg = nextLocked.need <= 0 ? tr("stgReqFirst") : tr("msLockedMsg", { code: nextLocked.code, need: nextLocked.need });
+            setErr(msg);
+            blip(320);
+          }}
+          style={{
+            width: 210,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderStyle: "dashed",
+            borderColor: colors.line,
+            backgroundColor: colors.chip,
+            padding: 12,
+            opacity: 0.9,
+          }}
+        >
+          <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink2 }}>🔒 {nextLocked.code}</Text>
+          <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink2 }}>{nextLocked.need <= 0 ? tr("stgFirstOrder") : tr("msProgress", { have: nextLocked.have, need: nextLocked.need })}</Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
+            {nextLocked.need <= 0 ? tr("stgReqFirst") : tr("msNeedMore", { n: Math.max(0, nextLocked.need - Number(nextLocked.have ?? 0)) })}
+          </Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
     {err ? <Text style={{ marginTop: 6, fontFamily: F.bold, fontSize: 11, color: "#E23744" }}>{err}</Text> : null}
     </>
