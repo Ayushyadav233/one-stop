@@ -1,0 +1,27 @@
+# Secrets — never commit real keys (use .env.example as template)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Expo / EAS local state
+.expo/
+dist/
+web-build/
+
+# Native build outputs
+android/build/
+android/app/build/
+android/.gradle/
+ios/build/
+ios/Pods/
+*.keystore
+*.jks
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

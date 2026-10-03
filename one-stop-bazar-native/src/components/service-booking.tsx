@@ -11,6 +11,7 @@ import { inr } from "@/lib/data";
 import { blip, useMarketplace, useOSB, type LiveOrder } from "@/lib/osb-store";
 import { durationMins, firstFreeWindow, generateSlotDays, slotLabel } from "@/lib/slots";
 import { apiPostOrder } from "@/lib/api";
+import { useTx } from "@/lib/i18n";
 import { useSheetBackCloser } from "@/lib/back";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img } from "./ui";
@@ -35,6 +36,7 @@ function BookingBody({ pid, onClose }: { pid: string; onClose: () => void }) {
   const phone = useOSB((s) => s.phone);
   const address = useOSB((s) => s.address);
   const { colors } = useTheme();
+  const tr = useTx();
   const p = products.find((x) => x.id === pid);
   const store = stores.find((x) => x.id === p?.storeId);
   const [dayIdx, setDayIdx] = useState(0);
@@ -136,18 +138,18 @@ function BookingBody({ pid, onClose }: { pid: string; onClose: () => void }) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{p.name}</Text>
               <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink2 }}>
-                ⏱ {dur} min service • ★ {p.rating} • {store.name}
+                {tr("bkSvcLine", { m: dur, r: p.rating, s: store.name })}
               </Text>
               <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{inr(p.price)}{p.mrp ? <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3, textDecorationLine: "line-through" }}> {inr(p.mrp)}</Text> : null}</Text>
             </View>
           </View>
 
-          <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 12, letterSpacing: 1.2, color: colors.ink3 }}>PICK A SLOT</Text>
+          <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 12, letterSpacing: 1.2, color: colors.ink3 }}>{tr("bkPickSlot")}</Text>
           {asap && (
             <Pressable onPress={() => { setSlotAt("asap"); blip(700); }} style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: slotAt === "asap" ? 2 : 1, borderColor: slotAt === "asap" ? "#7C5CFF" : colors.line, backgroundColor: slotAt === "asap" ? "rgba(124,92,255,.08)" : colors.card, padding: 12 }}>
               <Text style={{ fontSize: 16 }}>⚡</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>ASAP — first available</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{tr("bkAsap")}</Text>
                 <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{asap.day.label}, {asap.window.label}</Text>
               </View>
               {slotAt === "asap" && <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#7C5CFF" }}>✓</Text>}
@@ -157,7 +159,7 @@ function BookingBody({ pid, onClose }: { pid: string; onClose: () => void }) {
             {days.map((d, i) => (
               <Pressable key={d.key} onPress={() => { setDayIdx(i); const f = d.windows.find((w) => !w.full); setSlotAt(f ? f.at : "asap"); blip(600); }} style={{ borderRadius: 12, borderWidth: dayIdx === i && slotAt !== "asap" ? 2 : 1, borderColor: dayIdx === i && slotAt !== "asap" ? "#7C5CFF" : colors.line, backgroundColor: d.full ? colors.chip : colors.card, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", opacity: d.full ? 0.55 : 1 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{d.label}</Text>
-                <Text style={{ fontFamily: F.bold, fontSize: 10, color: d.full ? colors.ink3 : "#0C831F" }}>{d.full ? "Full" : `${d.windows.filter((w) => !w.full).length} slots`}</Text>
+                <Text style={{ fontFamily: F.bold, fontSize: 10, color: d.full ? colors.ink3 : "#0C831F" }}>{d.full ? tr("bkFull") : tr("bkSlots", { n: d.windows.filter((w) => !w.full).length })}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -174,30 +176,30 @@ function BookingBody({ pid, onClose }: { pid: string; onClose: () => void }) {
             </View>
           )}
 
-          <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 12, letterSpacing: 1.2, color: colors.ink3 }}>PAYMENT</Text>
+          <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 12, letterSpacing: 1.2, color: colors.ink3 }}>{tr("bkPayment")}</Text>
           <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
             {(["after", "now"] as const).map((m) => (
               <Pressable key={m} onPress={() => { setPay(m); blip(650); }} style={{ flex: 1, borderRadius: 14, borderWidth: pay === m ? 2 : 1, borderColor: pay === m ? "#0C831F" : colors.line, backgroundColor: pay === m ? "rgba(12,131,31,.06)" : colors.card, padding: 12 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{m === "after" ? "Pay after service" : "Pay now"}</Text>
-                <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{m === "after" ? "UPI / cash, kaam ke baad" : "UPI / card, abhi"}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{m === "after" ? tr("bkPayAfter") : tr("bkPayNow")}</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{m === "after" ? tr("bkPayAfterS") : tr("bkPayNowS")}</Text>
               </Pressable>
             ))}
           </View>
 
           <View style={{ marginTop: 12, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, padding: 12 }}>
             <Row l={`${p.name} (${dur} min)`} v={inr(p.price)} />
-            <Row l={visitFee === 0 ? "Visit (FREE)" : "Visit fee"} v={visitFee === 0 ? "FREE" : inr(visitFee)} />
+            <Row l={visitFee === 0 ? tr("bkVisitFree") : tr("bkVisitFee")} v={visitFee === 0 ? tr("cartFree") : inr(visitFee)} />
             <View style={{ marginTop: 6, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: colors.line, borderStyle: "dashed", paddingTop: 6 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>Total{pay === "after" ? " (due after service)" : ""}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{pay === "after" ? tr("bkTotalDue") : tr("bkTotal")}</Text>
               <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{inr(total)}</Text>
             </View>
             {!!label && <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11.5, color: "#7C5CFF" }}>🗓 {label}</Text>}
           </View>
 
           <Pressable disabled={!label || placing} onPress={() => void confirm()} style={{ marginTop: 14, borderRadius: 14, backgroundColor: !label ? colors.chip : "#7C5CFF", paddingVertical: 16, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 14.5, color: "#fff" }}>{placing ? "Booking…" : label ? `Confirm booking • ${inr(total)}` : "Slot chuno"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 14.5, color: "#fff" }}>{placing ? tr("bkBooking") : label ? tr("bkConfirm", { t: inr(total) }) : tr("bkPickFirst")}</Text>
           </Pressable>
-          <Text style={{ marginTop: 8, fontFamily: F.medium, fontSize: 10.5, color: colors.ink3, textAlign: "center" }}>Free reschedule • Verified pro • Visit fee service me adjust nahi hota</Text>
+          <Text style={{ marginTop: 8, fontFamily: F.medium, fontSize: 10.5, color: colors.ink3, textAlign: "center" }}>{tr("bkNote")}</Text>
         </ScrollView>
       </Animated.View>
     </View>

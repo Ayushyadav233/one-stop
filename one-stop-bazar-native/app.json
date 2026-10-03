@@ -21,11 +21,6 @@
       "permissions": [
         "ACCESS_FINE_LOCATION"
       ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
-        }
-      },
       "adaptiveIcon": {
         "backgroundColor": "#E23744",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -58,6 +53,12 @@
         {
           "icon": "./assets/icon.png",
           "color": "#E23744"
+        }
+      ],
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsVersion": "11.20.1"
         }
       ]
     ],

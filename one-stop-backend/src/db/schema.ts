@@ -162,6 +162,9 @@ export const sellerStores = pgTable("osb_seller_stores", {
   image: text("image"),
   address: varchar("address", { length: 320 }),
   isOpen: boolean("is_open").default(true),
+  // Full provider profile snapshot (categories, delivery rules, hours, plan…).
+  // App isi se fresh install pe dukaan poori restore karti hai.
+  profile: jsonb("profile").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -37,7 +37,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import { OsmLine, OsmMap, OsmPin } from "./map-osm";
 import {
   ArrowRight,
   Banknote,
@@ -75,20 +75,22 @@ import {
 import { COUPONS, STORES, inr } from "@/lib/data";
 import { blip, useMarketplace, useOSB, type LiveOrder } from "@/lib/osb-store";
 import { placeCall, resolveStoreCall } from "@/lib/contact";
-import { tFor } from "@/lib/i18n";
+import { tFor, useTx } from "@/lib/i18n";
 import { popBackCloser, useSheetBackCloser } from "@/lib/back";
 import {
-  CUSTOMER,
-  getCustomerLocation,
-  getStoreLocation,
-  openGoogleMapsNav,
-  quoteCart,
-  serviceStatusPill,
-  statusLabel,
-  statusStep,
-  timeAgo,
-  trackingHeadline,
-} from "@/lib/commerce";
+   CUSTOMER,
+   distToEta,
+   getCustomerLocation,
+   getRoute,
+   getStoreLocation,
+   openGoogleMapsNav,
+   quoteCart,
+   serviceStatusPill,
+   statusLabel,
+   statusStep,
+   timeAgo,
+   trackingHeadline,
+ } from "@/lib/commerce";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, LiveDot } from "./ui";
@@ -425,6 +427,7 @@ const NAV: Record<string, [string, string, LucideIcon][] | undefined> = {
    const mode = useOSB((s) => s.mode);
    const role = useOSB((s) => s.role);
    const language = useOSB((s) => s.language);
+   const tr = useTx();
    const cart = useOSB((s) => s.cart);
   const { colors } = useTheme();
   const count = cart.reduce((a, c) => a + c.qty, 0);
@@ -473,12 +476,12 @@ const NAV: Record<string, [string, string, LucideIcon][] | undefined> = {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>
-                {count} items • ₹{total}
+                {tr("cartBar", { n: count, total })}
               </Text>
-              <Text style={{ fontFamily: F.semi, fontSize: 11, color: "rgba(255,255,255,.75)" }}>Extra ₹100 OFF • View bill</Text>
+              <Text style={{ fontFamily: F.semi, fontSize: 11, color: "rgba(255,255,255,.75)" }}>{tr("cartBarSub")}</Text>
             </View>
             <View style={{ borderRadius: 12, backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 10 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#0C831F" }}>View cart →</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#0C831F" }}>{tr("cartView")}</Text>
             </View>
           </Pressable>
         </Animated.View>
@@ -609,6 +612,7 @@ export function CouponStrip() {
   const setCouponProof = useOSB((s) => s.setCouponProof);
   const cartTotal = useOSB((s) => s.cartTotal);
   const { colors } = useTheme();
+  const tr = useTx();
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   return (
@@ -633,12 +637,12 @@ export function CouponStrip() {
                     blip(920, 0.15);
                   } else {
                     setCouponProof(null);
-                    setErr(v?.error || "Internet chahiye coupon ke liye");
+                    setErr(v?.error || tr("cartCouponNeed"));
                     blip(320);
                   }
                 }).catch(() => {
                   setCouponProof(null);
-                  setErr("Internet chahiye coupon ke liye");
+                  setErr(tr("cartCouponNeed"));
                   blip(320);
                 }).finally(() => setBusy(""))
               );
@@ -655,7 +659,7 @@ export function CouponStrip() {
           >
             <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{c.code}</Text>
             <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: colors.ink }}>{c.title}</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{busy === c.code ? "Checking…" : c.detail}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{busy === c.code ? tr("cartChecking") : c.detail}</Text>
           </Pressable>
         );
       })}
@@ -678,6 +682,7 @@ export function CartSheet() {
   const sellerCoupons = useOSB((s) => s.sellerCoupons);
   const storewideOff = useOSB((s) => s.storewideOff);
   const { colors } = useTheme();
+  const tr = useTx();
   if (!showCart) return null;
   const q = quoteCart(cart, seller, storewideOff, coupon, sellerCoupons, couponProof);
   return (
@@ -686,7 +691,7 @@ export function CartSheet() {
         <Handle />
         <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ fontFamily: F.extra, fontSize: 19, letterSpacing: -0.4, color: colors.ink }}>
-            Your cart 🧺 <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink3 }}> {q.groups.length} store{q.groups.length === 1 ? "" : "s"}</Text>
+            {tr("cartTitle")} <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink3 }}> {q.groups.length === 1 ? tr("cartStoreOne") : tr("cartStoreMany", { n: q.groups.length })}</Text>
           </Text>
           <Pressable
             onPress={() => set({ showCart: false })}
@@ -700,8 +705,8 @@ export function CartSheet() {
             <View style={{ height: 140, width: 200, borderRadius: 20, overflow: "hidden", opacity: 0.7 }}>
               <Img src={STORES[4].image} style={{ width: "100%", height: "100%" }} />
             </View>
-            <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 17, color: colors.ink }}>Cart’s empty</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>Add biryani, milk, veggies…</Text>
+            <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 17, color: colors.ink }}>{tr("cartEmptyT")}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>{tr("cartEmptyS")}</Text>
           </View>
         ) : (
           <>
@@ -712,12 +717,12 @@ export function CartSheet() {
                     <View>
                       <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{g.storeName}</Text>
                       <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: colors.ink3 }}>
-                        Self-delivery • {g.quote.etaMins} mins • min ₹{g.quote.minOrder}
+                        {tr("cartGroup", { m: g.quote.etaMins, x: g.quote.minOrder })}
                       </Text>
                     </View>
                     <View style={{ borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: g.quote.freeDelivery ? "rgba(12,131,31,.12)" : colors.chip }}>
                       <Text style={{ fontFamily: F.extra, fontSize: 10, color: g.quote.freeDelivery ? "#0C831F" : colors.ink2 }}>
-                        {g.quote.freeDelivery ? "FREE delivery" : `₹${g.quote.fee} delivery`}
+                        {g.quote.freeDelivery ? tr("cartFreeDel") : tr("cartFeeDel", { fee: g.quote.fee })}
                       </Text>
                     </View>
                   </View>
@@ -746,38 +751,38 @@ export function CartSheet() {
                   {g.quote.belowMin && (
                     <View style={{ backgroundColor: "rgba(226,55,68,.08)", paddingHorizontal: 12, paddingVertical: 8 }}>
                       <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#E23744" }}>
-                        Add ₹{g.quote.minOrder - (g.quote.subtotal - g.quote.discount)} more for this store’s minimum.
+                        {tr("cartMinWarn", { x: g.quote.minOrder - (g.quote.subtotal - g.quote.discount) })}
                       </Text>
                     </View>
                   )}
                   {!g.quote.freeDelivery && g.quote.freeAbove > 0 && (
                     <View style={{ backgroundColor: "rgba(12,131,31,.08)", paddingHorizontal: 12, paddingVertical: 8 }}>
                       <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C5B21" }}>
-                        Free delivery from this store above ₹{g.quote.freeAbove} (shopkeeper rule).
+                        {tr("cartFreeHint", { x: g.quote.freeAbove })}
                       </Text>
                     </View>
                   )}
                 </View>
               ))}
             </View>
-            <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 11, letterSpacing: 1.5, color: colors.ink3 }}>BEST COUPON FOR YOU</Text>
+            <Text style={{ marginTop: 16, fontFamily: F.extra, fontSize: 11, letterSpacing: 1.5, color: colors.ink3 }}>{tr("cartBest")}</Text>
             <View style={{ marginTop: 8 }}>
               <CouponStrip />
             </View>
             <View style={{ marginTop: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, padding: 16 }}>
-              <Row l="Subtotal" v={inr(q.subtotal)} />
-              <Row l={`Discount (${coupon ?? "—"})`} v={"−" + inr(q.discount)} green />
-              <Row l="Delivery (by each store)" v={q.fee === 0 ? "FREE" : inr(q.fee)} green={q.fee === 0} />
+              <Row l={tr("cartSubtotal")} v={inr(q.subtotal)} />
+              <Row l={tr("cartDiscount", { c: coupon ?? "—" })} v={"−" + inr(q.discount)} green />
+              <Row l={tr("cartDel")} v={q.fee === 0 ? tr("cartFree") : inr(q.fee)} green={q.fee === 0} />
               <View style={{ marginTop: 8, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: colors.line, borderStyle: "dashed", paddingTop: 8 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>To pay</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{tr("cartTopay")}</Text>
                 <Text style={{ fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{inr(q.total)}</Text>
               </View>
               <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>
-                You save {inr(q.discount + (q.fee === 0 ? q.groups.reduce((a, g) => a + g.quote.deliveryFee, 0) : 0))} on this order 🎉
+                {tr("cartSave", { x: inr(q.discount + (q.fee === 0 ? q.groups.reduce((a, g) => a + g.quote.deliveryFee, 0) : 0)) })}
               </Text>
               {coupon && !couponProof ? (
                 <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "#E23744" }}>
-                  {coupon} verify nahi hua (internet chahiye) — discount checkout pe lagega ya hatega.
+                  {tr("cartCouponErr", { c: coupon })}
                 </Text>
               ) : null}
             </View>
@@ -808,11 +813,11 @@ export function CartSheet() {
               <View>
                 <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{inr(q.total)}</Text>
                 <Text style={{ fontFamily: F.semi, fontSize: 11, color: "rgba(255,255,255,.8)" }}>
-                  {q.groups.length > 1 ? `${q.groups.length} store orders` : "TOTAL"}
+                  {q.groups.length > 1 ? tr("cartSO", { n: q.groups.length }) : tr("cartTotal")}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#fff", paddingHorizontal: 20, paddingVertical: 12 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: "#E23744" }}>Checkout</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: "#E23744" }}>{tr("cartCheckout")}</Text>
                 <ArrowRight size={16} color="#E23744" />
               </View>
             </Pressable>
@@ -848,6 +853,7 @@ export function CheckoutSheet() {
   const couponProof = useOSB((s) => s.couponProof);
   const syncWallet = useOSB((s) => s.syncWallet);
   const { colors } = useTheme();
+  const tr = useTx();
   const [pay, setPay] = useState("UPI");
   const [placing, setPlacing] = useState(false);
   useEffect(() => { syncWallet(); }, []);
@@ -952,19 +958,19 @@ export function CheckoutSheet() {
     <Sheet onClose={() => !placing && set({ checkoutOpen: false })} zIndex={55} maxH="90%">
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 12 }}>
         <Handle />
-        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 19, letterSpacing: -0.4, color: colors.ink }}>Checkout</Text>
+        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 19, letterSpacing: -0.4, color: colors.ink }}>{tr("cartCheckout")}</Text>
         <View style={{ marginTop: 12, flexDirection: "row", alignItems: "flex-start", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, padding: 14 }}>
           <View style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#FFE9E9" }}>
             <MapPin size={18} color="#E23744" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>Deliver to {addressArea || "Home"} • ~{eta} mins</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{address || "Address set from GPS"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{tr("coDeliver", { area: addressArea || tr("addrHome"), m: eta })}</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{address || tr("coGps")}</Text>
           </View>
-          <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Change</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>{tr("coChange")}</Text>
         </View>
         <View style={{ marginTop: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, padding: 14 }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>Pay with</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{tr("coPayWith")}</Text>
           <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
             {PAY_METHODS.map(([m, Icon, s]) => {
               const on = pay === m;
@@ -987,14 +993,14 @@ export function CheckoutSheet() {
                 >
                   <Icon size={20} color={colors.ink} />
                   <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{m}</Text>
-                  <Text style={{ fontFamily: F.medium, fontSize: 10, color: colors.ink3 }}>{s}</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 10, color: colors.ink3 }}>{s === "Cash" ? tr("coCash") : s}</Text>
                 </Pressable>
               );
             })}
           </View>
           <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, backgroundColor: "rgba(12,131,31,.08)", padding: 10 }}>
             <ShieldCheck size={15} color="#0C831F" />
-            <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 11.5, color: "#0C5B21" }}>100% safe • Stores never see card details</Text>
+            <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 11.5, color: "#0C5B21" }}>{tr("coSafe")}</Text>
           </View>
         </View>
         <Pressable
@@ -1021,12 +1027,12 @@ export function CheckoutSheet() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>
-              {walletAvail > 0 ? `Wallet: ₹${walletAvail} available` : "Wallet: 0 balance"}
+              {walletAvail > 0 ? tr("coWalletAvail", { x: walletAvail }) : tr("coWalletZero")}
             </Text>
             <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink2 }}>
               {walletAvail > 0
-                ? (useWallet ? `₹${walletOff} applied • ${walletPoints} pts (10 pts = ₹1)` : "Tap to apply on this order")
-                : "Friend refer karo — 1 refer = 100 pts (₹10)"}
+                ? (useWallet ? tr("coWalletOn", { x: walletOff, pts: walletPoints }) : tr("coWalletTap"))
+                : tr("coReferEmpty")}
             </Text>
           </View>
           <View style={{ height: 26, width: 46, borderRadius: 13, backgroundColor: useWallet && walletOff > 0 ? "#0C831F" : colors.chip, alignItems: useWallet && walletOff > 0 ? "flex-end" : "flex-start", justifyContent: "center", paddingHorizontal: 3 }}>
@@ -1043,7 +1049,7 @@ export function CheckoutSheet() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: F.bold, fontSize: 11, color: "rgba(255,255,255,.6)" }}>
-              {cart.reduce((a, c) => a + c.qty, 0)} items • {q.groups.length} store{q.groups.length === 1 ? "" : "s"} • −{inr(q.discount)}{walletOff > 0 ? ` • −₹${walletOff} wallet` : ""}
+              {tr("wItems", { n: cart.reduce((a, c) => a + c.qty, 0) })} • {q.groups.length === 1 ? tr("cartStoreOne") : tr("cartStoreMany", { n: q.groups.length })} • −{inr(q.discount)}{walletOff > 0 ? ` ${tr("wWallet", { x: walletOff })}` : ""}
             </Text>
             <Text style={{ fontFamily: F.extra, fontSize: 20, color: "#fff" }}>{inr(payable)}</Text>
           </View>
@@ -1052,19 +1058,19 @@ export function CheckoutSheet() {
           {q.groups.map((g) => (
             <View key={g.storeId} style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink2 }}>
-                {g.storeName} • {g.quote.freeDelivery ? "FREE delivery" : `₹${g.quote.fee} delivery`}
+                {g.storeName} • {g.quote.freeDelivery ? tr("cartFreeDel") : tr("cartFeeDel", { fee: g.quote.fee })}
               </Text>
               <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: colors.ink }}>{inr(g.quote.total)}</Text>
             </View>
           ))}
           {walletOff > 0 ? (
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: "#0C831F" }}>Wallet applied 💰</Text>
+              <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: "#0C831F" }}>{tr("coWalletApplied")}</Text>
               <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#0C831F" }}>−₹{walletOff}</Text>
             </View>
           ) : null}
           <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: colors.ink3 }}>
-            Each store delivers with its own staff. Free delivery is set by the shopkeeper.
+            {tr("coNote")}
           </Text>
         </View>
         {q.blocked ? (
@@ -1090,12 +1096,12 @@ export function CheckoutSheet() {
           {placing ? (
             <>
               <ActivityIndicator color="#fff" />
-              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Sending to store…</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{tr("coSending")}</Text>
             </>
           ) : (
             <>
               <Bike size={19} color="#fff" />
-              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Place order • {inr(payable)}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{tr("coPlace", { t: inr(payable) })}</Text>
             </>
           )}
         </Pressable>
@@ -1131,6 +1137,7 @@ function ConfettiPiece({ left, delay, glyph }: { left: string | number; delay: n
 export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
   const o = useOSB((s) => s.orderSuccess);
   const set = useOSB((s) => s.set);
+  const tr = useTx();
   useSheetBackCloser(!!o, () => set({ orderSuccess: null }));
   useEffect(() => {
     if (o) blip(990, 0.2);
@@ -1157,16 +1164,16 @@ export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
           </View>
         </View>
         <View style={{ paddingHorizontal: 24, paddingBottom: 24, paddingTop: 32, width: "100%", alignItems: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 21, letterSpacing: -0.4, color: "#111114", textAlign: "center" }}>{isSvc ? "Booking request sent! 🛠️" : "Order sent to store! 🎉"}</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 21, letterSpacing: -0.4, color: "#111114", textAlign: "center" }}>{isSvc ? tr("sucBook") : tr("sucOrder")}</Text>
           <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12.5, lineHeight: 18, color: "#4E4E59", textAlign: "center" }}>
             {isSvc
-              ? <>{o.storeName} will confirm your{"\n"}🗓 {o.slotLabel ?? "slot"} shortly.</>
-              : <>{o.storeName} just got your order.{"\n"}They’ll accept it — then you can track live.</>}
+              ? <>{tr("sucSlotCal", { store: o.storeName, slot: o.slotLabel ?? "—" })}</>
+              : <>{tr("sucStoreOk", { store: o.storeName })}</>}
           </Text>
           <View style={{ marginTop: 12, width: "100%", borderRadius: 16, borderWidth: 2, borderStyle: "dashed", borderColor: "rgba(0,0,0,.12)", backgroundColor: "#F7F7F8", padding: 12, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.5, color: "#8C8C99" }}>{isSvc ? "BOOKING ID" : "ORDER ID"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.5, color: "#8C8C99" }}>{isSvc ? tr("sucBookId") : tr("sucOrderId")}</Text>
             <Text style={{ fontFamily: F.extra, fontSize: 17, color: "#111114" }}>{o.code}</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{inr(o.total)} • {o.payment === "PayAfter" ? "Pay after service" : o.payment}</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{inr(o.total)} • {o.payment === "PayAfter" ? tr("sucPayAfter") : o.payment}</Text>
           </View>
           <Pressable
             onPress={() => {
@@ -1175,14 +1182,14 @@ export function SuccessOverlay({ onTrack }: { onTrack: () => void }) {
             }}
             style={{ marginTop: 12, width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 14, backgroundColor: isSvc ? "#7C5CFF" : "#E23744", paddingVertical: 14 }}
           >
-            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{isSvc ? "View booking" : "Track live"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{isSvc ? tr("sucViewBook") : tr("sucTrack")}</Text>
             <ChevronRight size={16} color="#fff" />
           </Pressable>
           <Pressable
             onPress={() => set({ orderSuccess: null })}
             style={{ marginTop: 8, width: "100%", borderRadius: 14, backgroundColor: "rgba(0,0,0,.05)", paddingVertical: 12, alignItems: "center" }}
           >
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#111114" }}>Continue shopping</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#111114" }}>{tr("sucContinue")}</Text>
           </Pressable>
         </View>
       </Animated.View>
@@ -1202,159 +1209,188 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
 }
 
 /* ── TrackingSheet (web shell.tsx:366-599, map → react-native-maps) ── */
-export function TrackingSheet() {
-  const { trackingId: id, track } = useTracking();
-  const onClose = () => track(null);
-  const orders = useOSB((s) => s.orders);
-  const seller = useOSB((s) => s.seller);
-  const address = useOSB((s) => s.address);
-  const openChat = useOSB((s) => s.openChat);
-  const chatUnread = useOSB((s) => s.chatUnread);
-  const { stores } = useMarketplace();
-  const o = orders.find((x) => x.id === id) ?? orders[0];
-  // Hook early-return se pehle (hooks order fixed rahe).
-  useSheetBackCloser(!!(id && o), onClose);
-  const { colors } = useTheme();
-  if (!id || !o) return null;
+  export function TrackingSheet() {
+    const { trackingId: tid, track } = useTracking();
+    const onClose = () => track(null);
+    const orders = useOSB((s) => s.orders);
+    const seller = useOSB((s) => s.seller);
+    const address = useOSB((s) => s.address);
+    const openChat = useOSB((s) => s.openChat);
+    const chatUnread = useOSB((s) => s.chatUnread);
+    const trackingOrderId = useOSB((s) => s.trackingOrderId);
+    const startTracking = useOSB((s) => s.startTracking);
+    const { stores } = useMarketplace();
+    const id = tid ?? trackingOrderId;
+    const o = orders.find((x) => x.id === id) ?? orders[0];
+    useSheetBackCloser(!!(id && o), onClose);
+    const { colors } = useTheme();
+    const tr = useTx();
+    const language = useOSB((s) => s.language);
 
-  const step = statusStep(o.status);
-  const cancelled = o.status === "cancelled";
-  const delivered = o.status === "delivered";
-  const onway = o.status === "onway" || o.status === "ready";
-  const isSvc = o.kind === "service";
-  // Map sirf tab jab pro nikla ho — kal ke slot pe confirmation card dikhta hai.
-  const liveMap = !isSvc || ["onway", "ready", "delivered", "cancelled"].includes(o.status);
-  const rider = o.rider ? seller.riders.find((r) => r.name === o.rider) : undefined;
-  const cover = (o.items[0] as { image?: string } | undefined)?.image || STORES.find((s) => s.id === o.storeId)?.image || STORES[0].image;
-  const etaLeft = cancelled || delivered ? 0 : Math.max(4, o.etaMins - (onway ? 8 : step >= 1 ? 4 : 0));
-  const svcHeadline = trackingHeadline(o);
-  const headline = svcHeadline ?? (cancelled
-    ? "Order cancelled"
-    : delivered
-      ? "Delivered. Enjoy your order"
-      : o.status === "new"
-        ? "Waiting for the store to accept"
-        : o.status === "accepted"
-          ? "Store accepted — packing soon"
-          : o.status === "preparing"
-            ? "Kitchen is preparing your order"
-            : o.status === "ready"
-              ? "Packed. Rider leaving the store"
-              : o.rider
-                ? `${o.rider.split(" ")[0]} is on the way`
-                : "Out for delivery");
-  const steps = isSvc
-    ? [
-      { t: "Booked", s: `Slot: ${o.slotLabel ?? "—"} • ${timeAgo(o.createdAt)}`, Icon: Receipt },
-      { t: "Confirmed", s: o.status === "new" ? "Waiting for the pro to confirm" : `Locked for ${o.slotLabel ?? "your slot"}`, Icon: Package },
-      { t: "Service day", s: onway ? (o.rider ? `${o.rider} is on the way` : "Pro is on the way") : o.status === "ready" ? "Pro has reached" : "Map pro ke nikalne pe live hoga", Icon: Bike },
-      { t: "Done", s: delivered ? (o.payStatus === "pending" ? "Completed • payment due" : "Completed • paid") : "We’ll ask you to rate the pro", Icon: Check },
-    ]
-    : [
-      { t: "Placed", s: `Order sent • ${timeAgo(o.createdAt)}`, Icon: Receipt },
-      { t: "Preparing", s: o.status === "accepted" ? "Accepted — starting the kitchen" : o.status === "new" ? "Waiting for the shopkeeper" : "Being packed at the store", Icon: Package },
-      { t: "On the way", s: o.rider ? `${o.rider} • store’s own delivery` : "Store assigns their rider — no platform fleet", Icon: Bike },
-      { t: "Delivered", s: delivered ? "Handed over at your door" : "We’ll ask you to rate the store", Icon: Check },
-    ];
-  const progress = cancelled ? 6 : delivered ? 100 : Math.min(92, 12 + (step + 1) * 22);
-  const riderT = cancelled ? 0 : delivered ? 1 : step <= 0 ? 0.04 : step === 1 ? 0.18 : 0.62;
-  const storeLoc = getStoreLocation(o.storeId);
-  const homeLoc = getCustomerLocation(o.address);
-  const gps = o.riderLat != null && o.riderLng != null ? { latitude: o.riderLat, longitude: o.riderLng } : undefined;
-  const storeC = { latitude: storeLoc.lat, longitude: storeLoc.lng };
-  const homeC = { latitude: homeLoc.lat, longitude: homeLoc.lng };
-  const riderC = gps ?? { latitude: storeC.latitude + (homeC.latitude - storeC.latitude) * riderT, longitude: storeC.longitude + (homeC.longitude - storeC.longitude) * riderT };
-  const routeColor = cancelled ? "#E23744" : "#0C831F";
+    const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[] | null>(null);
+    const [liveEta, setLiveEta] = useState<number | null>(null);
 
-  return (
-    <Sheet onClose={onClose} zIndex={50} top={48} maxH="100%" radius={28}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-        {liveMap ? (
-        <View style={{ position: "relative", height: 258, backgroundColor: "#E8EDF2" }}>
-          <MapView
-            style={{ width: "100%", height: "100%" }}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
-            initialRegion={{
-              latitude: (storeC.latitude + homeC.latitude) / 2,
-              longitude: (storeC.longitude + homeC.longitude) / 2,
-              latitudeDelta: Math.max(Math.abs(storeC.latitude - homeC.latitude) * 1.8, 0.012),
-              longitudeDelta: Math.max(Math.abs(storeC.longitude - homeC.longitude) * 1.8, 0.012),
-            }}
-          >
-            <Polyline coordinates={[storeC, homeC]} strokeColor={routeColor} strokeWidth={4} lineDashPattern={cancelled ? [6, 6] : undefined} />
-            <Marker coordinate={storeC} title={o.storeName}>
-              <View style={{ height: 30, width: 30, borderRadius: 15, backgroundColor: "#0C831F", borderWidth: 3, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
-                <Store size={13} color="#fff" />
-              </View>
-            </Marker>
-            <Marker coordinate={homeC} title="You">
-              <View style={{ height: 30, width: 30, borderRadius: 15, backgroundColor: "#E23744", borderWidth: 3, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
-                <Home size={13} color="#fff" />
-              </View>
-            </Marker>
-            {!cancelled && (
-              <Marker coordinate={riderC} title={o.rider ?? "Rider"}>
-                <View style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0C831F" }}>
-                  <Text style={{ fontSize: 18 }}>🛵</Text>
-                </View>
-              </Marker>
-            )}
-          </MapView>
-          <LinearGradient colors={["transparent", "rgba(0,0,0,.25)", "rgba(0,0,0,.75)"]} style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120 }} pointerEvents="none" />
-          <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 12, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                {gps && <LiveDot color="#34D399" />}
-                <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: "rgba(255,255,255,.7)" }}>
-                  {gps ? "GPS LIVE BROADCAST" : o.storeName.toUpperCase()}
-                </Text>
-              </View>
-              <Text style={{ marginTop: 2, fontFamily: F.extra, fontSize: 16, lineHeight: 20, color: "#fff" }}>{headline}</Text>
-            </View>
-            {!cancelled && !delivered && (
-              <View style={{ borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, alignItems: "center" }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: colors.ink3 }}>ETA</Text>
-                <Text style={{ fontFamily: F.extra, fontSize: 16, lineHeight: 18, color: "#111114" }}>
-                  {etaLeft}<Text style={{ fontFamily: F.bold, fontSize: 10 }}> min</Text>
-                </Text>
-              </View>
-            )}
-          </View>
-          <Pressable onPress={onClose} style={{ position: "absolute", right: 12, top: 12, height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.95)", alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#111114" }}>✕</Text>
-          </Pressable>
-          <View style={{ position: "absolute", left: 12, top: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: cancelled ? "#E23744" : delivered ? "#0C831F" : "#fff" }}>
-              <LiveDot color={cancelled ? "#fff" : delivered ? "#D8F34E" : "#0C831F"} />
-              <Text style={{ fontFamily: F.extra, fontSize: 10, color: cancelled || delivered ? "#fff" : "#111114" }}>
-                {isSvc ? serviceStatusPill(o.status) : cancelled ? "CANCELLED" : delivered ? "DELIVERED" : statusLabel(o.status).toUpperCase()}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                openGoogleMapsNav(o.storeName, o.address, homeLoc.lat, homeLoc.lng);
-                blip(720);
-              }}
-              style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: "rgba(255,255,255,.95)", paddingHorizontal: 10, paddingVertical: 4 }}
+    // OSRM route + live ETA when onway
+    useEffect(() => {
+      if (o.status !== "onway") { setRouteCoords(null); setLiveEta(null); return; }
+      const storeLoc = getStoreLocation(o.storeId);
+      const homeLoc = getCustomerLocation(o.address);
+      const riderLat = o.riderLat ?? storeLoc.lat + (homeLoc.lat - storeLoc.lat) * 0.6;
+      const riderLng = o.riderLng ?? storeLoc.lng + (homeLoc.lng - storeLoc.lng) * 0.6;
+      getRoute(storeLoc.lat, storeLoc.lng, homeLoc.lat, homeLoc.lng).then((r) => {
+        if (r) {
+          setRouteCoords([
+            { latitude: storeLoc.lat, longitude: storeLoc.lng },
+            { latitude: riderLat, longitude: riderLng },
+            { latitude: homeLoc.lat, longitude: homeLoc.lng },
+          ]);
+          setLiveEta(distToEta(r.distance));
+        }
+      }).catch(() => {});
+    }, [o.id, o.status, o.riderLat, o.riderLng]);
+
+    if (!id || !o) return null;
+  
+ 
+   const step = statusStep(o.status);
+   const cancelled = o.status === "cancelled";
+   const delivered = o.status === "delivered";
+   const onway = o.status === "onway" || o.status === "ready";
+   const isSvc = o.kind === "service";
+   const liveMap = !isSvc || ["onway", "ready", "delivered", "cancelled"].includes(o.status);
+   const rider = o.rider ? seller.riders.find((r) => r.name === o.rider) : undefined;
+   const cover = (o.items[0] as { image?: string } | undefined)?.image || STORES.find((s) => s.id === o.storeId)?.image || STORES[0].image;
+   const etaLeft = cancelled || delivered ? 0 : liveEta ?? Math.max(4, o.etaMins - (onway ? 8 : step >= 1 ? 4 : 0));
+    const svcHeadline = trackingHeadline(o, language);
+    const headline = svcHeadline ?? (cancelled
+      ? tr("trkCancelled")
+      : delivered
+        ? tr("trkDelivered")
+        : o.status === "new"
+          ? tr("trkWaiting")
+          : o.status === "accepted"
+            ? tr("trkAccepted")
+            : o.status === "preparing"
+              ? tr("trkPreparing")
+              : o.status === "ready"
+                ? tr("trkPacked")
+                : o.rider
+                  ? tr("trkOnWay", { rider: o.rider.split(" ")[0] })
+                  : tr("trkOutForDel"));
+    const steps = isSvc
+      ? [
+        { t: tr("trkBooked"), s: `${tr("trkSlot", { slot: o.slotLabel ?? "—" })} • ${timeAgo(o.createdAt, language)}`, Icon: Receipt },
+        { t: tr("trkConfirmed"), s: o.status === "new" ? tr("trkWaitPro") : tr("trkLocked", { slot: o.slotLabel ?? tr("trkYourSlot") }), Icon: Package },
+        { t: tr("trkServiceDay"), s: onway ? (o.rider ? tr("trkOnWay", { rider: o.rider }) : tr("trkProWay")) : o.status === "ready" ? tr("trkProHere") : tr("trkMapLive"), Icon: Bike },
+        { t: tr("trkDone"), s: delivered ? (o.payStatus === "pending" ? tr("trkDoneDue") : tr("trkDonePaid")) : tr("trkRatePro"), Icon: Check },
+      ]
+      : [
+        { t: tr("trkPlaced"), s: `${tr("trkOrderSent")} • ${timeAgo(o.createdAt, language)}`, Icon: Receipt },
+        { t: tr("trkPrepIng"), s: o.status === "accepted" ? tr("trkKitchen") : o.status === "new" ? tr("trkWaitShop") : tr("trkPacking"), Icon: Package },
+        { t: tr("trkOnTheWay"), s: o.rider ? `${o.rider} • ${tr("trkOwnRider")}` : tr("trkNoFleet"), Icon: Bike },
+        { t: tr("trkDeliveredStep"), s: delivered ? tr("trkHandover") : tr("trkRateStore"), Icon: Check },
+      ];
+   const progress = cancelled ? 6 : delivered ? 100 : Math.min(92, 12 + (step + 1) * 22);
+   const riderT = cancelled ? 0 : delivered ? 1 : step <= 0 ? 0.04 : step === 1 ? 0.18 : 0.62;
+   const storeLoc = getStoreLocation(o.storeId);
+   const homeLoc = getCustomerLocation(o.address);
+   const gps = o.riderLat != null && o.riderLng != null ? { latitude: o.riderLat, longitude: o.riderLng } : undefined;
+   const storeC = { latitude: storeLoc.lat, longitude: storeLoc.lng };
+   const homeC = { latitude: homeLoc.lat, longitude: homeLoc.lng };
+   const riderC = gps ?? { latitude: storeC.latitude + (homeC.latitude - storeC.latitude) * riderT, longitude: storeC.longitude + (homeC.longitude - storeC.longitude) * riderT };
+   const routeColor = cancelled ? "#E23744" : "#0C831F";
+   const displayRoute = routeCoords ?? [storeC, homeC];
+ 
+   return (
+     <Sheet onClose={onClose} zIndex={50} top={48} maxH="100%" radius={28}>
+       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+         {liveMap ? (
+         <View style={{ position: "relative", height: 258, backgroundColor: "#E8EDF2" }}>
+            <OsmMap
+              style={{ width: "100%", height: "100%" }}
+              fit={[
+                { lat: storeC.latitude, lng: storeC.longitude },
+                { lat: homeC.latitude, lng: homeC.longitude },
+                { lat: riderC.latitude, lng: riderC.longitude },
+              ]}
             >
-              <Navigation size={11} color="#1573FF" />
-              <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#111114" }}>Maps</Text>
-            </Pressable>
-          </View>
-        </View>
-        ) : (
-        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+              <OsmLine
+                id={`route-${o.id}`}
+                coords={displayRoute.map((c) => ({ lat: c.latitude, lng: c.longitude }))}
+                color={routeColor}
+                width={4}
+                dash={cancelled ? [1.5, 1.5] : undefined}
+              />
+              <OsmPin point={{ lat: storeC.latitude, lng: storeC.longitude }}>
+                <View style={{ height: 30, width: 30, borderRadius: 15, backgroundColor: "#0C831F", borderWidth: 3, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+                  <Store size={13} color="#fff" />
+                </View>
+              </OsmPin>
+              <OsmPin point={{ lat: homeC.latitude, lng: homeC.longitude }}>
+                <View style={{ height: 30, width: 30, borderRadius: 15, backgroundColor: "#E23744", borderWidth: 3, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+                  <Home size={13} color="#fff" />
+                </View>
+              </OsmPin>
+              {!cancelled && (
+                <OsmPin point={{ lat: riderC.latitude, lng: riderC.longitude }}>
+                  <View style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0C831F" }}>
+                    <Text style={{ fontSize: 18 }}>🛵</Text>
+                  </View>
+                </OsmPin>
+              )}
+            </OsmMap>
+           <LinearGradient colors={["transparent", "rgba(0,0,0,.25)", "rgba(0,0,0,.75)"]} style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120 }} pointerEvents="none" />
+           <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 12, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
+             <View style={{ flex: 1 }}>
+               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                 {gps && <LiveDot color="#34D399" />}
+                  <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: "rgba(255,255,255,.7)" }}>
+                    {gps ? tr("trkGps") : o.storeName.toUpperCase()}
+                  </Text>
+               </View>
+               <Text style={{ marginTop: 2, fontFamily: F.extra, fontSize: 16, lineHeight: 20, color: "#fff" }}>{headline}</Text>
+             </View>
+             {!cancelled && !delivered && (
+               <View style={{ borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, alignItems: "center" }}>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 1.2, color: colors.ink3 }}>{tr("trkEta")}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 16, lineHeight: 18, color: "#111114" }}>
+                    {etaLeft}<Text style={{ fontFamily: F.bold, fontSize: 10 }}> {tr("trkMin")}</Text>
+                  </Text>
+               </View>
+             )}
+           </View>
+           <Pressable onPress={onClose} style={{ position: "absolute", right: 12, top: 12, height: 36, width: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,.95)", alignItems: "center", justifyContent: "center" }}>
+             <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#111114" }}>✕</Text>
+           </Pressable>
+           <View style={{ position: "absolute", left: 12, top: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
+             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: cancelled ? "#E23744" : delivered ? "#0C831F" : "#fff" }}>
+               <LiveDot color={cancelled ? "#fff" : delivered ? "#D8F34E" : "#0C831F"} />
+                <Text style={{ fontFamily: F.extra, fontSize: 10, color: cancelled || delivered ? "#fff" : "#111114" }}>
+                  {isSvc ? serviceStatusPill(o.status, language) : cancelled ? tr("trkCancelledPill") : delivered ? tr("trkDeliveredPill") : statusLabel(o.status, language).toUpperCase()}
+                </Text>
+             </View>
+             <Pressable
+               onPress={() => {
+                 openGoogleMapsNav(o.storeName, o.address, homeLoc.lat, homeLoc.lng);
+                 blip(720);
+               }}
+               style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: "rgba(255,255,255,.95)", paddingHorizontal: 10, paddingVertical: 4 }}
+             >
+                <Navigation size={11} color="#1573FF" />
+                <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#111114" }}>{tr("trkMaps")}</Text>
+             </Pressable>
+           </View>
+         </View>
+         ) : (
+         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.8, color: "#7C5CFF" }}>BOOKING</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.8, color: "#7C5CFF" }}>{tr("trkBooking")}</Text>
                 </View>
                 <View style={{ borderRadius: 999, backgroundColor: o.status === "new" ? "#FEF3C7" : "#0C831F", paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: o.status === "new" ? "#92400E" : "#fff" }}>{serviceStatusPill(o.status)}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: o.status === "new" ? "#92400E" : "#fff" }}>{serviceStatusPill(o.status, language)}</Text>
                 </View>
               </View>
               <Pressable onPress={onClose} style={{ height: 32, width: 32, borderRadius: 16, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
@@ -1362,9 +1398,9 @@ export function TrackingSheet() {
               </Pressable>
             </View>
             <Text style={{ marginTop: 10, fontFamily: F.extra, fontSize: 17, letterSpacing: -0.3, color: colors.ink }}>{headline}</Text>
-            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 14, color: "#7C5CFF" }}>🗓 {o.slotLabel ?? "Slot"}</Text>
+            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 14, color: "#7C5CFF" }}>{tr("trkSlotCal", { slot: o.slotLabel ?? tr("trkSlotWord") })}</Text>
             <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>
-              {o.storeName} • {inr(o.total)}{o.payStatus === "pending" ? " • pay after service" : " • paid"} • ⏱ ~{o.etaMins} min service
+              {o.storeName} • {inr(o.total)}{o.payStatus === "pending" ? tr("trkPayAfter") : tr("trkPaid")} • {tr("trkSvcTime", { m: o.etaMins })}
             </Text>
           </View>
         </View>
@@ -1373,7 +1409,7 @@ export function TrackingSheet() {
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{isSvc ? `🗓 ${o.slotLabel ?? "Slot booked"}` : `${o.distanceKm} km • self delivery`}</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{isSvc ? tr("trkSlotCal", { slot: o.slotLabel ?? tr("trkSlotBooked") }) : tr("trkKmSelf", { km: o.distanceKm })}</Text>
               <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink2 }}>{o.code}</Text>
             </View>
             <View style={{ height: 6, borderRadius: 999, backgroundColor: colors.chip, overflow: "hidden" }}>
@@ -1383,17 +1419,17 @@ export function TrackingSheet() {
 
           {cancelled && (
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: "rgba(226,55,68,.1)", padding: 16 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#E23744" }}>Store declined this order</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#E23744" }}>{tr("trkDeclined")}</Text>
               <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12.5, lineHeight: 18, color: colors.ink2 }}>
-                {o.note || "The shopkeeper rejected it. No payment was captured."}
+                {o.note || tr("trkDeclinedS")}
               </Text>
             </View>
           )}
 
           {isSvc && !cancelled && !delivered && (o.status === "new" || o.status === "accepted") && (
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>Slot change karna hai?</Text>
-              <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>Free reschedule — cancel karke naya slot book karo. Koi charge nahi.</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("trkRescheduleT")}</Text>
+              <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>{tr("trkRescheduleS")}</Text>
               <Pressable
                 onPress={() => {
                   useOSB.getState().updateOrderStatus(o.id, "cancelled");
@@ -1402,7 +1438,7 @@ export function TrackingSheet() {
                 }}
                 style={{ marginTop: 10, borderRadius: 12, backgroundColor: colors.chip, paddingVertical: 12, alignItems: "center" }}
               >
-                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#E23744" }}>Cancel booking</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: "#E23744" }}>{tr("trkCancelBook")}</Text>
               </Pressable>
             </View>
           )}
@@ -1411,7 +1447,7 @@ export function TrackingSheet() {
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: "#111117", padding: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <ShieldCheck size={12} color="#F8CB46" />
-                <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 2, color: "#F8CB46" }}>DELIVERY OTP</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 2, color: "#F8CB46" }}>{tr("trkDelOtp")}</Text>
               </View>
               <View style={{ marginTop: 6, flexDirection: "row", gap: 8 }}>
                 {o.otp.split("").map((d, ix) => (
@@ -1421,7 +1457,7 @@ export function TrackingSheet() {
                 ))}
               </View>
               <Text style={{ marginTop: 8, fontFamily: F.semi, fontSize: 11.5, lineHeight: 17, color: "rgba(255,255,255,.65)" }}>
-                Share this only after you receive the parcel. The order is marked delivered <Text style={{ color: "#fff" }}>only</Text> when the rider enters it.
+                {tr("trkOtpNote")}
               </Text>
             </View>
           )}
@@ -1430,7 +1466,7 @@ export function TrackingSheet() {
             <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingTop: 12 }}>
                 <Camera size={15} color="#0C831F" />
-                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>Delivery proof photo</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{tr("trkProof")}</Text>
               </View>
               <View style={{ marginTop: 8, height: 160 }}>
                 <Img src={o.proofPhoto} style={{ width: "100%", height: "100%" }} />
@@ -1447,7 +1483,7 @@ export function TrackingSheet() {
               style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, borderWidth: 2, borderColor: "#0C831F", paddingVertical: 14 }}
             >
               <Check size={17} strokeWidth={3} color="#0C831F" />
-              <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: "#0C831F" }}>I’ve received my order</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: "#0C831F" }}>{tr("trkReceived")}</Text>
             </Pressable>
           )}
 
@@ -1460,8 +1496,8 @@ export function TrackingSheet() {
                 <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{o.storeName}</Text>
                 <Text style={{ marginTop: 2, fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>
                   {isSvc
-                    ? (o.rider ? `${o.rider} • your pro` : "Verified pro visits your home")
-                    : (o.rider ? `${o.rider} • ${rider?.vehicle ?? "Store rider"}` : "Store delivers with its own staff")}
+                    ? (o.rider ? `${o.rider} • ${tr("trkYourPro")}` : tr("trkVerifiedPro"))
+                    : (o.rider ? `${o.rider} • ${rider?.vehicle ?? tr("trkStoreRider")}` : tr("trkOwnStaff"))}
                 </Text>
               </View>
               <Pressable
@@ -1508,7 +1544,7 @@ export function TrackingSheet() {
                         <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: done || now ? colors.ink : colors.ink3 }}>{st.t}</Text>
                         {now && (
                           <View style={{ borderRadius: 999, backgroundColor: "#F8CB46", paddingHorizontal: 8, paddingVertical: 2 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#111114" }}>LIVE</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#111114" }}>{tr("trkLive")}</Text>
                           </View>
                         )}
                       </View>
@@ -1525,18 +1561,18 @@ export function TrackingSheet() {
               <MapPin size={18} color="#E23744" />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: colors.ink3 }}>DELIVERING TO</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.2, color: colors.ink3 }}>{tr("trkDeliveringTo")}</Text>
               <Text style={{ marginTop: 2, fontFamily: F.extra, fontSize: 13, lineHeight: 18, color: colors.ink }}>{o.address || address}</Text>
               <View style={{ marginTop: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Clock size={12} color={colors.ink3} />
-                <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>Placed {timeAgo(o.createdAt)}</Text>
+                <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{tr("trkPlacedAt", { time: timeAgo(o.createdAt, language) })}</Text>
               </View>
             </View>
           </View>
 
           <View style={{ marginTop: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>Bill details</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{tr("trkBill")}</Text>
               <View style={{ borderRadius: 999, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 4 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 10, color: colors.ink }}>{o.payment}</Text>
               </View>
@@ -1561,21 +1597,21 @@ export function TrackingSheet() {
             </View>
             <View style={{ marginTop: 12, gap: 4, borderTopWidth: 1, borderTopColor: colors.line, borderStyle: "dashed", paddingTop: 12 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>Item total</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{tr("trkItemTotal")}</Text>
                 <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink }}>{inr(o.subtotal)}</Text>
               </View>
               {o.discount > 0 && (
                 <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontFamily: F.medium, fontSize: 12, color: "#0C831F" }}>Discount</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 12, color: "#0C831F" }}>{tr("trkDiscount")}</Text>
                   <Text style={{ fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>−{inr(o.discount)}</Text>
                 </View>
               )}
               <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>Delivery (by store)</Text>
-                <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink }}>{o.fee === 0 ? "FREE" : inr(o.fee)}</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{tr("trkDelByStore")}</Text>
+                <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink }}>{o.fee === 0 ? tr("cartFree") : inr(o.fee)}</Text>
               </View>
               <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 4 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>Paid</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{tr("trkPaidWord")}</Text>
                 <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>{inr(o.total)}</Text>
               </View>
             </View>
@@ -1584,7 +1620,7 @@ export function TrackingSheet() {
           <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 16, backgroundColor: "rgba(12,131,31,.08)", padding: 14 }}>
             <PartyPopper size={16} color="#E23744" />
             <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 12, lineHeight: 17, color: "#0C5B21" }}>
-              Tip goes 100% to the store’s rider — One Stop Bazar never takes a cut.
+              {tr("trkTip")}
             </Text>
           </View>
         </View>
@@ -1627,6 +1663,8 @@ function ShellBody() {
         if (t) {
           setApiToken(t);
           registerForPush().catch(() => {});
+          // Purani session me boot: server wali dukaan restore / local wali backfill.
+          try { if (useOSB.getState().loggedIn) useOSB.getState().syncSellerFromServer(); } catch { /* noop */ }
         }
       })
       .catch(() => {});

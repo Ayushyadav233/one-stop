@@ -12,6 +12,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { ArrowRight, Check, Mail, Sparkles, User, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useTx, type StrKey } from "@/lib/i18n";
 import { useSheetBackCloser } from "@/lib/back";
 import { apiApplyReferral, apiPatchMe } from "@/lib/api";
 import { tokens } from "@/theme/tokens";
@@ -20,6 +21,8 @@ import { F } from "./ui";
 
 const AVATARS = ["🧑", "👩", "🧔", "👨‍🦱", "👩‍🦰", "🧕", "👴", "👵", "🧑‍🍳", "🧑‍💼", "🧑‍🎨", "🦸"];
 const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
+/** Stored value English hi rehta hai — sirf display language-wise. */
+const GENDER_LABEL: Record<string, StrKey> = { Male: "profMale", Female: "profFemale", Other: "profOther", "Prefer not to say": "profNoSay" };
 
 /**
  * Shown once right after OTP verification (for any brand-new or incomplete
@@ -32,6 +35,7 @@ export function ProfileSetupScreen() {
   const completeProfile = useOSB((s) => s.completeProfile);
   const logout = useOSB((s) => s.logout);
   const { colors } = useTheme();
+  const tr = useTx();
   const [name, setName] = useState(userName || "");
   const [email, setEmail] = useState("");
   const [gender, setGender] = useState("");
@@ -42,12 +46,12 @@ export function ProfileSetupScreen() {
 
   const save = () => {
     if (!name.trim()) {
-      setErr("Please tell us your name.");
+      setErr(tr("profNeedName"));
       blip(320);
       return;
     }
     if (email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) {
-      setErr("That email doesn't look right.");
+      setErr(tr("profBadEmail"));
       blip(320);
       return;
     }
@@ -61,7 +65,7 @@ export function ProfileSetupScreen() {
     if (rc) {
       apiApplyReferral(rc).then((j) => {
         if (j?.ok) {
-          setReferMsg(`Referral applied! Tumhe ₹5 bonus mila 🎉`);
+          setReferMsg(tr("profRefOk"));
           useOSB.getState().syncWallet();
           blip(880);
         } else if (j?.error) {
@@ -86,18 +90,18 @@ export function ProfileSetupScreen() {
             blip(400);
           }}
         >
-          <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink3 }}>Use another number</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink3 }}>{tr("profOtherNum")}</Text>
         </Pressable>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 16 }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <Sparkles size={13} color="#0C831F" />
-          <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: "#0C831F" }}>ALMOST THERE</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: "#0C831F" }}>{tr("profAlmost")}</Text>
         </View>
-        <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 26, letterSpacing: -0.5, color: colors.ink }}>Set up your profile</Text>
+        <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 26, letterSpacing: -0.5, color: colors.ink }}>{tr("profTitle")}</Text>
         <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 13, color: colors.ink2 }}>
-          This name shows on your orders, bills and to shopkeepers you deal with.
+          {tr("profSub")}
         </Text>
 
         {/* avatar picker */}
@@ -117,7 +121,7 @@ export function ProfileSetupScreen() {
             <Text style={{ fontSize: 38 }}>{avatar}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 1.6, color: colors.ink3 }}>CHOOSE AN AVATAR</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profAvatar")}</Text>
             <View style={{ marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               {AVATARS.map((a) => (
                 <Pressable
@@ -143,7 +147,7 @@ export function ProfileSetupScreen() {
         </View>
 
         {/* name */}
-        <Text style={{ marginTop: 24, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>FULL NAME *</Text>
+        <Text style={{ marginTop: 24, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profNameLabel")}</Text>
         <View
           style={{
             marginTop: 6,
@@ -166,14 +170,14 @@ export function ProfileSetupScreen() {
               setName(v);
               setErr("");
             }}
-            placeholder="e.g. Priya Sharma"
+            placeholder={tr("profNamePh")}
             placeholderTextColor={colors.ink3}
             style={{ flex: 1, fontFamily: F.bold, fontSize: 15, color: colors.ink }}
           />
         </View>
 
         {/* email */}
-        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>EMAIL (OPTIONAL)</Text>
+        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profEmailLabel")}</Text>
         <View
           style={{
             marginTop: 6,
@@ -204,7 +208,7 @@ export function ProfileSetupScreen() {
         </View>
 
         {/* gender */}
-        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>GENDER (OPTIONAL)</Text>
+        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profGenderLabel")}</Text>
         <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           {GENDERS.map((g) => (
             <Pressable
@@ -220,19 +224,19 @@ export function ProfileSetupScreen() {
                 backgroundColor: gender === g ? "#E23744" : colors.chip,
               }}
             >
-              <Text style={{ fontFamily: F.bold, fontSize: 12, color: gender === g ? "#fff" : colors.ink2 }}>{g}</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 12, color: gender === g ? "#fff" : colors.ink2 }}>{tr(GENDER_LABEL[g] ?? "profOther")}</Text>
             </Pressable>
           ))}
         </View>
 
         <View style={{ marginTop: 12, borderRadius: 14, backgroundColor: colors.chip, paddingHorizontal: 14, paddingVertical: 12 }}>
           <Text style={{ fontFamily: F.semi, fontSize: 12, color: colors.ink3 }}>
-            Logged in as <Text style={{ fontFamily: F.extra, color: colors.ink }}>{phone}</Text>
+            {tr("profLoggedIn", { phone })}
           </Text>
         </View>
 
         {/* Referral (optional) */}
-        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>REFER CODE (OPTIONAL)</Text>
+        <Text style={{ marginTop: 12, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profRefLabel")}</Text>
         <View
           style={{
             marginTop: 6,
@@ -255,7 +259,7 @@ export function ProfileSetupScreen() {
               setReferMsg("");
               setErr("");
             }}
-            placeholder="Friend ka code? e.g. OSB1234ABC"
+            placeholder={tr("profRefPh")}
             placeholderTextColor={colors.ink3}
             autoCapitalize="characters"
             style={{ flex: 1, fontFamily: F.bold, fontSize: 14, letterSpacing: 1, color: colors.ink }}
@@ -263,7 +267,7 @@ export function ProfileSetupScreen() {
         </View>
         {referCode.trim() ? (
           <Text style={{ marginTop: 6, fontFamily: F.semi, fontSize: 11, color: colors.ink2 }}>
-            Code lagane pe friend ko 100 pts aur tumhe ₹5 welcome bonus 🎉
+            {tr("profRefHint")}
           </Text>
         ) : null}
         {referMsg ? <Text style={{ marginTop: 6, fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>{referMsg}</Text> : null}
@@ -276,12 +280,12 @@ export function ProfileSetupScreen() {
           onPress={save}
           style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#E23744", paddingVertical: 16 }}
         >
-          <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Continue</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{tr("profContinue")}</Text>
           <ArrowRight size={18} color="#fff" />
         </Pressable>
         <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
           <Check size={13} color={colors.ink3} />
-          <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>You can edit this anytime from Profile</Text>
+          <Text style={{ fontFamily: F.semi, fontSize: 11, color: colors.ink3 }}>{tr("profEditNote")}</Text>
         </View>
       </View>
     </Animated.View>
@@ -300,6 +304,7 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
   const phone = useOSB((s) => s.phone);
   const completeProfile = useOSB((s) => s.completeProfile);
   const { colors } = useTheme();
+  const tr = useTx();
   useSheetBackCloser(true, onClose);
   const [name, setName] = useState(userName);
   const [email, setEmail] = useState(userEmail);
@@ -309,12 +314,12 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
 
   const save = () => {
     if (!name.trim()) {
-      setErr("Please enter your name.");
+      setErr(tr("profNeedName2"));
       blip(320);
       return;
     }
     if (email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) {
-      setErr("That email doesn't look right.");
+      setErr(tr("profBadEmail"));
       blip(320);
       return;
     }
@@ -335,7 +340,7 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 12 }} keyboardShouldPersistTaps="handled">
             <View style={{ alignSelf: "center", height: 6, width: 48, borderRadius: 999, backgroundColor: "rgba(0,0,0,.15)" }} />
             <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 18, letterSpacing: -0.3, color: colors.ink }}>Edit profile</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 18, letterSpacing: -0.3, color: colors.ink }}>{tr("profEditTitle")}</Text>
               <Pressable onPress={onClose} style={{ height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.chip }}>
                 <X size={17} color={colors.ink} />
               </Pressable>
@@ -346,7 +351,7 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
                 <Text style={{ fontSize: 30 }}>{avatar}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>AVATAR</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profAvatarShort")}</Text>
                 <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {AVATARS.map((a) => (
                     <Pressable
@@ -373,20 +378,20 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
 
             <View style={{ marginTop: 16, gap: 10 }}>
               <View style={{ borderRadius: 13, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, paddingVertical: 10 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>FULL NAME *</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profNameLabel")}</Text>
                 <TextInput
                   value={name}
                   onChangeText={(v) => {
                     setName(v);
                     setErr("");
                   }}
-                  placeholder="Your name"
+                  placeholder={tr("profYourName")}
                   placeholderTextColor={colors.ink3}
                   style={{ fontFamily: F.semi, fontSize: 13.5, color: colors.ink }}
                 />
               </View>
               <View style={{ borderRadius: 13, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, paddingVertical: 10 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>EMAIL</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profEmailShort")}</Text>
                 <TextInput
                   value={email}
                   onChangeText={(v) => {
@@ -401,7 +406,7 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
                 />
               </View>
               <View>
-                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>GENDER</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1.6, color: colors.ink3 }}>{tr("profGenderShort")}</Text>
                 <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {GENDERS.map((g) => (
                     <Pressable
@@ -417,21 +422,21 @@ export function EditProfileSheet({ onClose }: { onClose: () => void }) {
                         backgroundColor: gender === g ? "#E23744" : colors.chip,
                       }}
                     >
-                      <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: gender === g ? "#fff" : colors.ink2 }}>{g}</Text>
+                      <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: gender === g ? "#fff" : colors.ink2 }}>{tr(GENDER_LABEL[g] ?? "profOther")}</Text>
                     </Pressable>
                   ))}
                 </View>
               </View>
               <View style={{ borderRadius: 13, backgroundColor: colors.chip, paddingHorizontal: 14, paddingVertical: 10 }}>
                 <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>
-                  Mobile number: <Text style={{ fontFamily: F.extra, color: colors.ink }}>{phone}</Text> (cannot be changed)
+                  {tr("profPhoneLock", { phone })}
                 </Text>
               </View>
             </View>
 
             {err ? <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 12, color: "#E23744" }}>{err}</Text> : null}
             <Pressable onPress={save} style={{ marginTop: 16, borderRadius: 14, backgroundColor: "#0C831F", paddingVertical: 16, alignItems: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>Save changes</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{tr("profSave")}</Text>
             </Pressable>
           </ScrollView>
         </Animated.View>

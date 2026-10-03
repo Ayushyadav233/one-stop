@@ -260,7 +260,14 @@ export const COUPONS = [
   { code: "FREEDEL", title: "Free delivery", detail: "On 3 orders this week", offPct: 100, maxOff: 35, minOrder: 99 },
 ];
 
-export function greetingForHour(h: number) {
+export function greetingForHour(h: number, lang: "en" | "hi" = "en") {
+  if (lang === "hi") {
+    if (h < 5) return { label: "आधी रात की क्रेविंग?", sub: "24×7 दवा, आइसक्रीम और आराम", mood: "night" as const };
+    if (h < 11) return { label: "सुप्रभात", sub: "गरम नाश्ता, ताज़ा दूध और साग पास में", mood: "morning" as const };
+    if (h < 16) return { label: "नमस्ते", sub: "लंच स्पेशल और किराना top-up", mood: "afternoon" as const };
+    if (h < 20) return { label: "शुभ संध्या", sub: "स्नैक्स, बेकरी और चाय टाइम", mood: "evening" as const };
+    return { label: "शुभ रात्रि", sub: "डिनर, डेज़र्ट और देर रात का सामान", mood: "night" as const };
+  }
   if (h < 5) return { label: "Late night cravings?", sub: "24×7 meds, ice-cream & comfort", mood: "night" as const };
   if (h < 11) return { label: "Good morning", sub: "Hot breakfast, fresh milk & greens nearby", mood: "morning" as const };
   if (h < 16) return { label: "Good afternoon", sub: "Lunch specials & grocery top-ups", mood: "afternoon" as const };

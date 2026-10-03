@@ -210,6 +210,32 @@ export function apiSellerPatchCoupon(id: string, patch: Record<string, unknown>)
 export function apiSellerDeleteCoupon(id: string) {
   return json<{ ok?: boolean }>(`/api/seller/coupons/${encodeURIComponent(id)}`, { method: "DELETE" }, 10000);
 }
+/** Seller store — dukaan ka server record (reinstall/phone-change pe restore). Fail-soft null. */
+export type ApiSellerStore = {
+  id?: string; ownerId?: string; name?: string; slug?: string; kind?: string | null;
+  tagline?: string | null; image?: string | null; address?: string | null;
+  isOpen?: boolean | null; profile?: Record<string, unknown> | null;
+  createdAt?: string;
+};
+export function apiSellerGetStores() {
+  return json<{ stores?: ApiSellerStore[] }>("/api/seller/store", undefined, 10000).then((j) =>
+    Array.isArray(j?.stores) ? j!.stores! : []
+  );
+}
+export function apiSellerPostStore(p: { name: string; slug?: string; kind?: string; tagline?: string; image?: string; address?: string; isOpen?: boolean; profile?: Record<string, unknown> }) {
+  return json<{ ok?: boolean; store?: ApiSellerStore; error?: string }>(
+    "/api/seller/store",
+    { method: "POST", body: JSON.stringify(p) },
+    10000
+  );
+}
+export function apiSellerPatchStore(id: string, patch: { name?: string; kind?: string; tagline?: string; image?: string; address?: string; isOpen?: boolean; profile?: Record<string, unknown> }) {
+  return json<{ ok?: boolean; store?: ApiSellerStore; error?: string }>(
+    `/api/seller/store/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+    10000
+  );
+}
 
 /** Reviews — mine (auth) + post + delete own (fail-soft). */
 export type ApiReview = {

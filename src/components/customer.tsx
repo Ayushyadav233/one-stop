@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
-import { BadgePercent, Bell, ChevronRight, Clock, Copy, Heart, MapPin, Mic, Moon, Pencil, ScanSearch, Search, Sparkles, Star, Sun, Ticket, Truck, Wallet, Zap, Bike, ChevronDown, Leaf } from "lucide-react";
+import { BadgePercent, Bell, ChevronRight, Clock, Copy, Heart, MapPin, Mic, Moon, Pencil, ScanSearch, Search, ShoppingCart, Sparkles, Star, Sun, Ticket, Truck, Wallet, Zap, Bike, ChevronDown, Leaf } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORIES, CATS, COUPONS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { blip, useMarketplace, useOSB } from "@/lib/osb-store";
@@ -16,7 +16,8 @@ function useGreeting() {
 }
 
 export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
-  const { set, query, category, userName, userAvatar, addressArea, address } = useOSB();
+  const { set, query, category, userName, addressArea, address, cart } = useOSB();
+  const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const g = useGreeting();
   const dark = useOSB((s) => s.dark);
   const [banner, setBanner] = useState(0);
@@ -80,8 +81,13 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
               <span className="mt-0.5 block truncate text-[11.5px] font-medium text-ink3">{address || "Tap to add delivery address"}</span>
             </button>
           </div>
-          <button onClick={() => set({ tab: "profile" })} className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#0E3B2E] to-[#1FB67C] text-[17px] font-black text-white">
-            {userAvatar || (userName ? userName[0].toUpperCase() : "👤")}
+          <button onClick={() => { set({ showCart: true }); blip(700); }} className="relative grid h-10 w-10 place-items-center rounded-full chip">
+            <ShoppingCart size={18} strokeWidth={2.4} />
+            {cartCount > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-[#E23744] px-1 text-[10.5px] font-extrabold text-white">
+                {cartCount > 99 ? "99+" : cartCount}
+              </span>
+            )}
           </button>
           <button onClick={() => { set({ dark: !dark }); blip(700); }} className="grid h-10 w-10 place-items-center rounded-full chip">{dark ? <Sun size={17} /> : <Moon size={17} />}</button>
         </div>

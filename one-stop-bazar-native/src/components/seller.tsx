@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, SlideInDown, SlideInRight } from "react-native-reanimated";
+import { OsmMap, OsmPin } from "./map-osm";
 import {
   BadgePercent,
   Bell,
@@ -1415,31 +1416,38 @@ export function SellerOnboarding() {
   const userName = useOSB((s) => s.userName);
   const saveAccount = useOSB((s) => s.saveAccount);
   const { colors } = useTheme();
-  const [step, setStep] = useState(0);
-  const [name, setName] = useState(seller.name);
-  const [ph, setPh] = useState(seller.phone || phone);
-  const [addr, setAddr] = useState(seller.address);
-  const [err, setErr] = useState("");
-  const steps = ["Business", "Categories", "Delivery", "Hours", "Plan"];
-  const primary = CATEGORIES.find((c) => seller.categories[0] === c.k) ?? CATEGORIES.find((c) => seller.categories.includes(c.k));
-  const done = () => {
-    const digits = (phone || ph).replace(/\D/g, "").slice(-10);
-    const storeName = name.trim() || (primary ? `My ${primary.t}` : "My Store");
-    setSeller({
-      onboarded: true,
-      storeOpen: true,
-      storeId: seller.storeId && seller.storeId !== "mine" ? seller.storeId : "mine-" + (digits || "shop"),
-      name: storeName,
-      phone: ph.trim() || phone,
-      address: addr.trim() || "HSR Layout, Bengaluru",
-      tagline: primary?.sub || "Local store",
-      coverImage: primary?.img || "",
-      description: primary ? `${primary.t} from a neighbourhood business in HSR.` : "Local store on One Stop Bazar.",
-      announcement: "",
-    });
+   const [step, setStep] = useState(0);
+   const [name, setName] = useState(seller.name);
+   const [ph, setPh] = useState(seller.phone || phone);
+   const [addr, setAddr] = useState(seller.address);
+   const [err, setErr] = useState("");
+   const [storeLoc, setStoreLoc] = useState<{ latitude: number; longitude: number } | null>(
+     seller.storeLat && seller.storeLng ? { latitude: seller.storeLat, longitude: seller.storeLng } : null
+   );
+   const steps = ["Business", "Categories", "Delivery", "Hours", "Plan"];
+   const primary = CATEGORIES.find((c) => seller.categories[0] === c.k) ?? CATEGORIES.find((c) => seller.categories.includes(c.k));
+   const done = () => {
+     const digits = (phone || ph).replace(/\D/g, "").slice(-10);
+     const storeName = name.trim() || (primary ? `My ${primary.t}` : "My Store");
+     setSeller({
+       onboarded: true,
+       storeOpen: true,
+       storeId: seller.storeId && seller.storeId !== "mine" ? seller.storeId : "mine-" + (digits || "shop"),
+       name: storeName,
+       phone: ph.trim() || phone,
+       address: addr.trim() || "HSR Layout, Bengaluru",
+       tagline: primary?.sub || "Local store",
+       coverImage: primary?.img || "",
+       description: primary ? `${primary.t} from a neighbourhood business in HSR.` : "Local store on One Stop Bazar.",
+       announcement: "",
+       storeLat: storeLoc?.latitude ?? seller.storeLat,
+       storeLng: storeLoc?.longitude ?? seller.storeLng,
+     });
     if (useOSB.getState().team.length === 0) addTeam({ name: userName || "You", role: "Owner", phone: ph.trim() || phone || "—", active: true });
     useOSB.setState({ catalogInit: true, tab: "dash", mode: "provider" });
     saveAccount();
+    // Dukaan server pe bhi save — reinstall/naye device pe wapas aayegi (fail-soft).
+    try { useOSB.getState().uploadSellerStore(); } catch { /* offline — dirty flag retry karega */ }
     blip(990, 0.2);
   };
   const next = () => {
@@ -1478,22 +1486,41 @@ export function SellerOnboarding() {
       </Text>
 
       <Animated.View key={step} entering={SlideInRight.springify().stiffness(200).damping(26)} style={{ marginTop: 16, flex: 1 }}>
-        {step === 0 && (
-          <View>
-            <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>Tell us about{"\n"}your business 🏪</Text>
-            <View style={{ marginTop: 16, gap: 10 }}>
-              <Field label="Business name">
-                <TextInput value={name} onChangeText={setName} placeholder="e.g. Mira’s Wardrobe" placeholderTextColor={colors.ink3} style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
-              </Field>
-              <Field label="Shop phone * (customers call/chat here)">
-                <TextInput value={ph} onChangeText={setPh} placeholder="+91 98xxx xxxxx" placeholderTextColor={colors.ink3} keyboardType="phone-pad" style={{ fontFamily: F.semi, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
-              </Field>
-              <Field label="Store address">
-                <TextInput value={addr} onChangeText={setAddr} placeholder="Street, HSR Layout" placeholderTextColor={colors.ink3} style={{ fontFamily: F.medium, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
-              </Field>
-            </View>
-          </View>
-        )}
+         {step === 0 && (
+           <View>
+             <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>Tell us about{"\n"}your business 🏪</Text>
+             <View style={{ marginTop: 16, gap: 10 }}>
+               <Field label="Business name">
+                 <TextInput value={name} onChangeText={setName} placeholder="e.g. Mira's Wardrobe" placeholderTextColor={colors.ink3} style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
+               </Field>
+               <Field label="Shop phone * (customers call/chat here)">
+                 <TextInput value={ph} onChangeText={setPh} placeholder="+91 98xxx xxxxx" placeholderTextColor={colors.ink3} keyboardType="phone-pad" style={{ fontFamily: F.semi, fontSize: 14, color: colors.ink, paddingVertical: 4 }} />
+               </Field>
+               <Field label="Store address">
+                 <TextInput value={addr} onChangeText={setAddr} placeholder="Street, HSR Layout" placeholderTextColor={colors.ink3} style={{ fontFamily: F.medium, fontSize: 13, color: colors.ink, paddingVertical: 4 }} />
+               </Field>
+             </View>
+              <OsmMap
+                style={{ marginTop: 12, height: 180, borderRadius: 16, backgroundColor: "#E8EDF2" }}
+                center={storeLoc ? { lat: storeLoc.latitude, lng: storeLoc.longitude } : { lat: 12.9169, lng: 77.6386 }}
+                zoom={14.5}
+                interactive
+                onMapPress={(pt) => {
+                  setStoreLoc({ latitude: pt.lat, longitude: pt.lng });
+                  setSeller({ storeLat: pt.lat, storeLng: pt.lng });
+                }}
+              >
+                {storeLoc && (
+                  <OsmPin point={{ lat: storeLoc.latitude, lng: storeLoc.longitude }}>
+                    <View style={{ alignItems: "center" }}>
+                      <Text style={{ fontSize: 28 }}>📍</Text>
+                    </View>
+                  </OsmPin>
+                )}
+              </OsmMap>
+             <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>📍 Tap the map to pin your store location</Text>
+           </View>
+         )}
         {step === 1 && (
           <View>
             <Text style={{ fontFamily: F.extra, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: colors.ink }}>What do you sell? 🛍️</Text>

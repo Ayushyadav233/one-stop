@@ -9,6 +9,7 @@ import Animated, { SlideInDown } from "react-native-reanimated";
 import { blip, useOSB, type ChatMsg } from "@/lib/osb-store";
 import { apiGetChat, apiSendChat } from "@/lib/api";
 import { timeAgo } from "@/lib/commerce";
+import { useTx } from "@/lib/i18n";
 import { useSheetBackCloser } from "@/lib/back";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F } from "./ui";
@@ -27,6 +28,8 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
   const chatRole = useOSB((s) => s.chatRole);
   const markChatSeen = useOSB((s) => s.markChatSeen);
   const { colors } = useTheme();
+  const tr = useTx();
+  const language = useOSB((s) => s.language);
   const order = orders.find((o) => o.id === orderId) ?? sellerOrders.find((o) => o.id === orderId);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [role, setRole] = useState<"customer" | "store">(chatRole);
@@ -36,7 +39,7 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
   const scrollRef = useRef<ScrollView>(null);
-  const otherName = !order ? "Chat" : role === "customer" ? ("storeName" in order ? order.storeName : "Store") : order.customer;
+  const otherName = !order ? tr("chChat") : role === "customer" ? ("storeName" in order ? order.storeName : tr("chStore")) : order.customer;
 
   const load = useCallback(async (silent: boolean) => {
     const j = await apiGetChat(orderId);
@@ -87,7 +90,7 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
       setDraft("");
       markChatSeen(orderId);
     } else {
-      setErr("Message nahi gaya — internet check karke retry karo.");
+      setErr(tr("chSendFail"));
     }
     setSending(false);
   };
@@ -108,9 +111,9 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14.5, color: colors.ink }}>{otherName}</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
-                {order.code}{local ? " • offline thread (same device)" : " • order chat"}
-              </Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
+                  {order.code}{local ? tr("chOffline") : tr("chOrderChat")}
+                </Text>
             </View>
             <Pressable onPress={onClose} style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ fontFamily: F.extra, fontSize: 14, color: colors.ink }}>✕</Text>
@@ -123,13 +126,13 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
             contentContainerStyle={{ paddingTop: 12, paddingBottom: 8, gap: 8, minHeight: 220 }}
           >
             {loading ? (
-              <Text style={{ marginTop: 60, fontFamily: F.medium, fontSize: 12, color: colors.ink3, textAlign: "center" }}>Loading chat…</Text>
+              <Text style={{ marginTop: 60, fontFamily: F.medium, fontSize: 12, color: colors.ink3, textAlign: "center" }}>{tr("chLoading")}</Text>
             ) : msgs.length === 0 ? (
               <View style={{ marginTop: 40, alignItems: "center" }}>
                 <Text style={{ fontSize: 34 }}>💬</Text>
-                <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>Say hello!</Text>
+                <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{tr("chHello")}</Text>
                 <Text style={{ marginTop: 2, maxWidth: 260, fontFamily: F.medium, fontSize: 11.5, lineHeight: 16, color: colors.ink3, textAlign: "center" }}>
-                  {role === "customer" ? "Slot, address ya service detail confirm karo." : "Customer se slot/address confirm karo."}
+                  {role === "customer" ? tr("chConfirmCus") : tr("chConfirmStore")}
                 </Text>
               </View>
             ) : (
@@ -138,7 +141,7 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
                   <View style={{ maxWidth: "80%", borderRadius: 14, borderTopRightRadius: mine(m) ? 4 : 14, borderTopLeftRadius: mine(m) ? 14 : 4, backgroundColor: mine(m) ? "#0C831F" : colors.card, borderWidth: mine(m) ? 0 : 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 8 }}>
                     <Text style={{ fontFamily: F.medium, fontSize: 13, lineHeight: 18, color: mine(m) ? "#fff" : colors.ink }}>{m.text}</Text>
                     <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 9.5, color: mine(m) ? "rgba(255,255,255,.7)" : colors.ink3, textAlign: "right" }}>
-                      {timeAgo(new Date(m.createdAt).getTime())}
+                      {timeAgo(new Date(m.createdAt).getTime(), language)}
                     </Text>
                   </View>
                 </View>
@@ -151,7 +154,7 @@ function ChatBody({ orderId, onClose }: { orderId: string; onClose: () => void }
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Type a message…"
+              placeholder={tr("chTypeMsg")}
               placeholderTextColor={colors.ink3}
               multiline
               maxLength={500}

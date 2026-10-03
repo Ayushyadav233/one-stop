@@ -25,6 +25,7 @@ import {
 } from "lucide-react-native";
 import { type CategoryDef } from "@/lib/data";
 import { activeCategories, blip, fastestEta, useMarketplace, useOSB } from "@/lib/osb-store";
+import { useTx } from "@/lib/i18n";
 import { useTheme } from "@/theme/ThemeProvider";
 import { F, Img, SectionHead } from "./ui";
 import { BlinkitCard, ZomatoCard } from "./customer";
@@ -34,6 +35,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
   const extraCategories = useOSB((s) => s.extraCategories);
   const hiddenCategories = useOSB((s) => s.hiddenCategories);
   const { colors } = useTheme();
+  const tr = useTx();
   const [open, setOpen] = useState<CategoryDef | null>(null);
   const list = useMemo(() => activeCategories(), [extraCategories, hiddenCategories]);
   const featured = list.filter((c) => c.featured);
@@ -66,7 +68,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
   const countFor = (c: CategoryDef) => counts.get(c.k) ?? 0;
   const etaFor = (c: CategoryDef): string | null => {
     const f = etas.get(c.k);
-    return f ? `from ${f} min` : null;
+    return f ? tr("catFromMin", { m: f }) : null;
   };
 
   const W = Dimensions.get("window").width;
@@ -77,9 +79,9 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
       {/* fixed header (web: sticky) */}
       <View style={{ backgroundColor: colors.surface, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.line }}>
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>Categories</Text>
+          <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>{tr("catTitle")}</Text>
           <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>
-            {list.length} categories • new ones added without app updates
+            {tr("catSub", { n: list.length })}
           </Text>
         </View>
         <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
@@ -99,7 +101,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
           >
             <Search size={18} strokeWidth={2.6} color={colors.brand} />
             <Text numberOfLines={1} style={{ flex: 1, fontFamily: F.medium, fontSize: 13.5, color: colors.ink3 }}>
-              Search any category, store or product…
+              {tr("catSearch")}
             </Text>
             <Mic size={16} color={colors.ink2} />
             <ScanSearch size={16} color={colors.ink2} />
@@ -132,15 +134,15 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Sparkles size={11} color="rgba(255,255,255,.7)" />
                       <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: "rgba(255,255,255,.7)" }}>
-                        {c.dynamic ? "Just added" : "Featured"}
+                        {c.dynamic ? tr("catJustAdded") : tr("catFeatured")}
                       </Text>
                     </View>
                     <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 21, lineHeight: 22, color: "#fff" }}>{c.t}</Text>
                     <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, color: "rgba(255,255,255,.75)" }}>
-                      {countFor(c)} stores{etaFor(c) ? ` • ${etaFor(c)}` : ""}
+                      {tr("catStores", { n: countFor(c) })}{etaFor(c) ? ` • ${etaFor(c)}` : ""}
                     </Text>
                     <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6 }}>
-                      <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#000" }}>Explore</Text>
+                      <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#000" }}>{tr("catExplore")}</Text>
                       <ArrowRight size={12} color="#000" />
                     </View>
                   </View>
@@ -152,7 +154,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
 
         {/* full grid */}
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-          <SectionHead title="All categories" sub="Tap to see stores, products & subcategories" />
+          <SectionHead title={tr("catAll")} sub={tr("catAllSub")} />
           <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             {list.map((c, i) => {
               const n = countFor(c);
@@ -183,7 +185,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                       </View>
                       {c.dynamic ? (
                         <View style={{ position: "absolute", left: 8, top: 8, borderRadius: 6, backgroundColor: "#7C5CFF", paddingHorizontal: 6, paddingVertical: 2 }}>
-                          <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.8, color: "#fff" }}>NEW</Text>
+                          <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.8, color: "#fff" }}>{tr("catNew")}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -193,9 +195,9 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
                       <View style={{ marginTop: 6, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: `${c.accent}22`, paddingHorizontal: 6, paddingVertical: 2 }}>
                           <StoreIcon size={10} color={c.accent} />
-                          <Text style={{ fontFamily: F.extra, fontSize: 10, color: c.accent }}>{n} stores</Text>
+                          <Text style={{ fontFamily: F.extra, fontSize: 10, color: c.accent }}>{tr("catStores", { n })}</Text>
                         </View>
-                        <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>{etaFor(c) ? `⚡ ${etaFor(c)}` : "Coming soon"}</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>{etaFor(c) ?? tr("catSoon")}</Text>
                       </View>
                     </View>
                   </Pressable>
@@ -211,8 +213,8 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
               <Text style={{ fontFamily: F.extra, fontSize: 18, color: "#7C5CFF" }}>＋</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>Missing a category?</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>Local providers can request one — CEO approves it live.</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{tr("catMissing")}</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>{tr("catMissingS")}</Text>
             </View>
             <ChevronRight size={16} color={colors.ink3} />
           </Pressable>
@@ -228,6 +230,7 @@ export function CategoriesTab({ onStore }: { onStore: (id: string) => void }) {
 function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () => void; onStore: (id: string) => void }) {
   const [sub, setSub] = useState<string>("All");
   const { colors } = useTheme();
+  const tr = useTx();
   const { stores: allStores, products: allProducts } = useMarketplace();
   const stores = useMemo(() => allStores.filter((s) => c.kinds.includes(s.kind)), [c, allStores]);
   const liveEta = fastestEta(stores);
@@ -259,11 +262,11 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
           </Pressable>
           <View style={{ position: "absolute", left: 16, right: 16, bottom: 12 }}>
             <View style={{ alignSelf: "flex-start", borderRadius: 6, backgroundColor: c.accent, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: "#fff" }}>{liveEta ? `from ${liveEta} min delivery` : "Coming soon"}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1.4, color: "#fff" }}>{liveEta ? tr("catDelFrom", { m: liveEta }) : tr("catSoon")}</Text>
             </View>
             <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 26, lineHeight: 28, color: "#fff" }}>{c.t}</Text>
             <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12, color: "rgba(255,255,255,.8)" }}>
-              {c.sub} • {stores.length} stores near you
+              {tr("catNearYou", { sub: c.sub, n: stores.length })}
             </Text>
           </View>
         </View>
@@ -287,7 +290,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
                     borderColor: sub === s ? c.accent : colors.line,
                   }}
                 >
-                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: sub === s ? "#fff" : colors.ink2 }}>{s}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: sub === s ? "#fff" : colors.ink2 }}>{s === "All" ? tr("catAllF") : s}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -298,7 +301,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: `${c.accent}1F`, padding: 12 }}>
             <Package size={16} color={c.accent} />
             <Text style={{ fontFamily: F.bold, fontSize: 12, color: colors.ink }}>
-              {products.length} products & {stores.length} local businesses
+              {tr("catProdBiz", { n: products.length, m: stores.length })}
             </Text>
           </View>
         </View>
@@ -306,7 +309,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
         {products.length > 0 && (
           <View style={{ paddingTop: 16 }}>
             <View style={{ paddingHorizontal: 16 }}>
-              <SectionHead title={`Top picks in ${c.t}`} />
+              <SectionHead title={tr("catTopPicks", { cat: c.t })} />
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingTop: 10 }}>
               {products.map((p, i) => (
@@ -317,7 +320,7 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
         )}
 
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-          <SectionHead title="Stores" sub="Delivered by the store's own team" />
+          <SectionHead title={tr("catStoresT")} sub={tr("catOwnTeam")} />
           <View style={{ marginTop: 12, gap: 16 }}>
             {stores.map((s, i) => (
               <ZomatoCard key={s.id} id={s.id} index={i} onOpen={() => onStore(s.id)} />
@@ -326,9 +329,9 @@ function CategoryDetail({ c, onClose, onStore }: { c: CategoryDef; onClose: () =
           {stores.length === 0 && (
             <View style={{ marginTop: 8, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 32, alignItems: "center" }}>
               <Text style={{ fontSize: 44 }}>{c.emoji}</Text>
-              <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 15, color: colors.ink }}>Stores joining soon</Text>
+              <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 15, color: colors.ink }}>{tr("catJoining")}</Text>
               <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12, color: colors.ink3, textAlign: "center" }}>
-                Local {c.t.toLowerCase()} businesses are being onboarded in HSR.
+                {tr("catOnboard", { cat: c.t.toLowerCase() })}
               </Text>
             </View>
           )}

@@ -37,5 +37,43 @@ Docs: https://docs.expo.dev/eas/index.md
 ## Rules
 
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+ - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
+ - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Project: One Stop Bazar
+
+### Stack
+- Expo React Native (Bun + TypeScript)
+- Hono backend (Node/tsx) on :8787 (dev), Render (prod)
+- Zustand store (`src/lib/osb-store.ts`) with AsyncStorage persist
+- `@rnmapbox/maps` v10 (Mapbox Maps SDK) rendering free OSM raster tiles — `EXPO_PUBLIC_MAPBOX_TOKEN` in `.env` (free tier, zero Mapbox tile usage since only OSM raster)
+- react-native-maps REMOVED (its Google provider required a valid Google API key → blank maps on Android)
+- OSRM demo server `router.project-osrm.org` for routing
+
+### Maps & Driver Tracking
+- `src/lib/commerce.ts`: `getRoute(fromLat,fromLng,toLat,toLng)`, `straightDist()`, `distToEta()`, `geocodeAddress()`
+- `src/lib/osb-store.ts`: `trackingOrderId`, `startTracking()`, `stopTracking()`, clear rider on delivered/cancelled; `SellerSettings` has `storeLat`/`storeLng`
+- `src/components/rider.tsx`: Auto-start GPS on order accepted/onway, distance throttle 15m/10s, background location via watchPositionAsync
+- `src/components/shell.tsx`: TrackingSheet with OSRM route polyline + live ETA; hooks MUST come before early return
+- `src/components/seller.tsx`: Pin-drop map in onboarding step 0
+- `src/components/live-map.tsx`: LiveMap component with OSM tiles
+- Backend orders.ts PATCH: accepts riderLat/riderLng/riderLastSeen, sends push on status change
+
+### Key Fixes Applied
+- `canonicalProductKey` ReferenceError: inlined canonical logic in osb-store.ts
+- Live products self-heal: ignore remoteStores when remoteProducts empty
+- Dev diagnostics strip removed from customer.tsx
+- TrackingSheet hooks order: all hooks before `if (!id || !o) return null`
+
+### Maps (rnmapbox + OSM raster)
+- Shared primitives in `src/components/map-osm.tsx`: `OsmMap` (MapView + OSM RasterSource + Camera fit/center), `OsmLine` (ShapeSource LineString + LineLayer), `OsmPin` (MarkerView). All map screens use these.
+- `OSM_TILES` URL template lives in `src/lib/commerce.ts` (only `{z}/{x}/{y}` placeholders allowed).
+- Mapbox `lineDasharray` units are LINE-WIDTHS not px (e.g. `[1.5, 1.5]` ≈ 6px dashes at width 4).
+- Coordinates are `[lng, lat]` tuples in rnmapbox (NOT `{latitude, longitude}` objects).
+- Mapbox access token: `EXPO_PUBLIC_MAPBOX_TOKEN` in `.env`, set via `Mapbox.setAccessToken` in `src/app/_layout.tsx`.
+
+### Important Notes
+- Dev backend: `EXPO_PUBLIC_API_URL=http://10.0.2.2:8787` (NOT Render)
+- No Google Maps dependency anymore — react-native-maps removed (placeholder Google key made Android map blank)
+- OSRM demo server is free but rate-limited; self-host via Dockerfile.osrm + render.yaml
+- `npx tsc --noEmit` must be green before declaring done

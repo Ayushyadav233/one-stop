@@ -9,10 +9,10 @@
  *   the OTP + photo-gate + completeDelivery flow is otherwise 1:1). See deviations note at bottom.
  * - Sheet overlay: backdrop Pressable sibling (RN has no stopPropagation).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import { OsmLine, OsmMap, OsmPin } from "./map-osm";
 import * as Location from "expo-location";
 import {
   Bike,
@@ -51,36 +51,31 @@ function RiderMap({
   showRider: boolean;
   routeColor?: string;
 }) {
-  const mid = { latitude: (store.lat + home.lat) / 2, longitude: (store.lng + home.lng) / 2 };
-  const span = {
-    latitudeDelta: Math.max(0.02, Math.abs(store.lat - home.lat) * 2.4),
-    longitudeDelta: Math.max(0.02, Math.abs(store.lng - home.lng) * 2.4),
-  };
   const rider = riderPos
-    ? { latitude: riderPos.lat, longitude: riderPos.lng }
-    : { latitude: store.lat + (home.lat - store.lat) * 0.6, longitude: store.lng + (home.lng - store.lng) * 0.6 };
+    ? { lat: riderPos.lat, lng: riderPos.lng }
+    : { lat: store.lat + (home.lat - store.lat) * 0.6, lng: store.lng + (home.lng - store.lng) * 0.6 };
   return (
-    <MapView style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} initialRegion={{ ...mid, ...span }} scrollEnabled={false} zoomEnabled={false} pitchEnabled={false} rotateEnabled={false}>
-      <Marker coordinate={{ latitude: store.lat, longitude: store.lng }} title="Store">
+    <OsmMap style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} fit={[store, home, rider]}>
+      <OsmPin point={store}>
         <View style={{ height: 38, width: 38, borderRadius: 14, backgroundColor: "#fff", borderWidth: 2, borderColor: "#0C831F", alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 18 }}>🏪</Text>
         </View>
-      </Marker>
-      <Marker coordinate={{ latitude: home.lat, longitude: home.lng }} title="Customer">
+      </OsmPin>
+      <OsmPin point={home}>
         <View style={{ height: 38, width: 38, borderRadius: 14, backgroundColor: "#fff", borderWidth: 2, borderColor: "#E23744", alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 18 }}>🏠</Text>
         </View>
-      </Marker>
-      <Polyline coordinates={[{ latitude: store.lat, longitude: store.lng }, { latitude: home.lat, longitude: home.lng }]} strokeColor="#8A8A99" strokeWidth={4} lineDashPattern={[8, 10]} />
-      <Polyline coordinates={[{ latitude: store.lat, longitude: store.lng }, rider]} strokeColor={routeColor} strokeWidth={5} />
+      </OsmPin>
+      <OsmLine id="rider-full" coords={[store, home]} color="#8A8A99" width={4} dash={[2, 2.5]} />
+      <OsmLine id="rider-travelled" coords={[store, rider]} color={routeColor} width={5} />
       {showRider && (
-        <Marker coordinate={rider} title="Rider">
+        <OsmPin point={rider}>
           <View style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: "#F8CB46", borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontSize: 18 }}>🛵</Text>
           </View>
-        </Marker>
+        </OsmPin>
       )}
-    </MapView>
+    </OsmMap>
   );
 }
 
@@ -109,59 +104,66 @@ export function RiderPanel() {
   const earnings = mine.done.length * 25;
   const [offlineWarn, setOfflineWarn] = useState(false);
 
-  // Real-time GPS broadcast for active delivery (expo-location + road-simulation fallback).
-  useEffect(() => {
-    if (!active || !riderCtx || !riderCtx.online) return;
-    const orderId = active.id;
-    const storeLoc = getStoreLocation(active.storeId);
-    const homeLoc = getCustomerLocation(active.address);
-
-    let progress = active.riderLat && active.riderLng ? 0.35 : 0.12;
-
-    const broadcast = (lat: number, lng: number) => {
-      updateRiderLocation(orderId, lat, lng);
-    };
-
-    if (!active.riderLat || !active.riderLng) {
-      broadcast(storeLoc.lat + (homeLoc.lat - storeLoc.lat) * progress, storeLoc.lng + (homeLoc.lng - storeLoc.lng) * progress);
-    }
-
-    let cancelled = false;
-    let sub: Location.LocationSubscription | null = null;
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (cancelled || status !== "granted") return;
-        sub = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.High, timeInterval: 4000, distanceInterval: 5 },
-          (pos) => {
-            broadcast(pos.coords.latitude, pos.coords.longitude);
-            setGpsActive(true);
-          }
-        );
-      } catch {
-        /* fallback to smooth road simulation below */
-      }
-    })();
-
-    const interval = setInterval(() => {
-      progress = Math.min(0.94, progress + 0.04);
-      const lat = storeLoc.lat + (homeLoc.lat - storeLoc.lat) * progress;
-      const lng = storeLoc.lng + (homeLoc.lng - storeLoc.lng) * progress;
-      broadcast(lat, lng);
-    }, 3500);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      try {
-        sub?.remove();
-      } catch {
-        /* noop */
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.id, active?.status, riderCtx, updateRiderLocation]);
+   // Real-time GPS broadcast with distance throttle (15m / 10s) + background location.
+   const lastBcast = useRef<{ lat: number; lng: number; t: number } | null>(null);
+   const broadcast = useCallback((orderId: string, lat: number, lng: number) => {
+     const now = Date.now();
+     const last = lastBcast.current;
+     if (last) {
+       const dLat = (lat - last.lat) * 111000;
+       const dLng = (lng - last.lng) * 111000 * Math.cos(((lat + last.lat) * Math.PI) / 360);
+       if (Math.sqrt(dLat * dLat + dLng * dLng) < 15 && now - last.t < 10000) return;
+     }
+     lastBcast.current = { lat, lng, t: now };
+     updateRiderLocation(orderId, lat, lng);
+   }, [updateRiderLocation]);
+   useEffect(() => {
+     if (!active || !riderCtx || !riderCtx.online) return;
+     const orderId = active.id;
+     const storeLoc = getStoreLocation(active.storeId);
+     const homeLoc = getCustomerLocation(active.address);
+     let progress = active.riderLat && active.riderLng ? 0.35 : 0.12;
+     if (!active.riderLat || !active.riderLng) {
+       broadcast(orderId, storeLoc.lat + (homeLoc.lat - storeLoc.lat) * progress, storeLoc.lng + (homeLoc.lng - storeLoc.lng) * progress);
+     }
+     let cancelled = false;
+     let sub: Location.LocationSubscription | null = null;
+     let bgSub: Location.LocationSubscription | null = null;
+     (async () => {
+       try {
+         const { status: fg } = await Location.requestForegroundPermissionsAsync();
+         if (cancelled || fg !== "granted") return;
+          sub = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 15 },
+            (pos) => { broadcast(orderId, pos.coords.latitude, pos.coords.longitude); setGpsActive(true); }
+          );
+          try {
+            const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+            if (bg === "granted") {
+              bgSub = await Location.watchPositionAsync(
+                { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 20 },
+                (pos) => { broadcast(orderId, pos.coords.latitude, pos.coords.longitude); }
+              );
+            }
+          } catch { /* background not available */ }
+       } catch {
+         /* fallback to smooth road simulation below */
+       }
+     })();
+      const interval = setInterval(() => {
+        progress = Math.min(0.94, progress + 0.04);
+        const lat = storeLoc.lat + (homeLoc.lat - storeLoc.lat) * progress;
+        const lng = storeLoc.lng + (homeLoc.lng - storeLoc.lng) * progress;
+        broadcast(orderId, lat, lng);
+      }, 5000);
+     return () => {
+       cancelled = true;
+       clearInterval(interval);
+       try { sub?.remove(); } catch { /* noop */ }
+       try { bgSub?.remove(); } catch { /* noop */ }
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [active?.id, active?.status, riderCtx, updateRiderLocation]);
 
   if (!riderCtx) return null;
 

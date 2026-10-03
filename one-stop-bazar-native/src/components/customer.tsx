@@ -32,6 +32,7 @@ import {
   ScanSearch,
   Search,
   Send,
+  ShoppingCart,
   Sparkles,
   Star,
   Sun,
@@ -41,10 +42,10 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { activeCategories, blip, fastestEta, productEtaText, useMarketplace, useOSB } from "@/lib/osb-store";
-import { apiGetCoupons, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
+import { apiGetCoupons, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, REFER_REWARD_POINTS, POINTS_PER_RUPEE, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
-import { useT } from "@/lib/i18n";
+import { useT, useTx, type StrKey } from "@/lib/i18n";
 import { statusLabel } from "@/lib/commerce";
 import { useTheme } from "@/theme/ThemeProvider";
 import { AddStepper, F, Glass, Img, LiveDot, Rating, SectionHead, SpringBtn, VegMark } from "./ui";
@@ -53,8 +54,9 @@ import { ChangeLocationSheet } from "./location-setup";
 import { CouponsSheet, HelpSheet, ReviewsSheet, SettingsSheet, WalletSheet } from "./profile-sheets";
 
 function useGreeting() {
+  const language = useOSB((s) => s.language);
   const h = new Date().getHours();
-  return greetingForHour(h);
+  return greetingForHour(h, language);
 }
 
 /* ═══════════ CustomerHome ═══════════ */
@@ -64,6 +66,13 @@ const DEFAULT_BANNERS: Banner[] = [
   { img: STORES[4].image, tag: "FRESH AT 6 AM", title: "Veggies in 12 mins", sub: "Farm direct • 20% OFF", cta: "Shop fresh", colors: ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"] as const },
   { img: STORES[9].image, tag: "GLOW AT HOME", title: "Salon @ ₹1499", sub: "O3+ facial • 4.9★ pros", cta: "Book now", colors: ["rgba(60,20,60,.8)", "rgba(60,20,60,.1)", "transparent"] as const },
 ];
+/** Language-aware fallback banners (admin CMS live hone pe ye nahi dikhte). */
+function defaultBanners(tr: (k: StrKey, vars?: Record<string, string | number>) => string): Banner[] {
+  return DEFAULT_BANNERS.map((b, i) => {
+    const n = i + 1;
+    return { ...b, tag: tr(`hmDefB${n}tag` as StrKey), title: tr(`hmDefB${n}t` as StrKey), sub: tr(`hmDefB${n}s` as StrKey), cta: tr(`hmDefB${n}c` as StrKey) };
+  });
+}
 const BANNER_TINTS: Banner["colors"][] = [
   ["rgba(10,10,10,.78)", "rgba(10,10,10,.15)", "transparent"],
   ["rgba(14,59,46,.85)", "rgba(14,59,46,.15)", "transparent"],
@@ -581,11 +590,13 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
   const query = useOSB((s) => s.query);
   const category = useOSB((s) => s.category);
   const userName = useOSB((s) => s.userName);
-  const userAvatar = useOSB((s) => s.userAvatar);
+  const cart = useOSB((s) => s.cart);
+  const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const addressArea = useOSB((s) => s.addressArea);
   const address = useOSB((s) => s.address);
   const dark = useOSB((s) => s.dark);
   const { colors } = useTheme();
+  const tr = useTx();
    const g = useGreeting();
    const role = useOSB((s) => s.role);
    const isSuper = role === "super_admin";
@@ -664,7 +675,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
     if (!activeCat) {
       const live = homeBlocks.filter((b) => b.kind === "banner" && slotOf(b) === "banners" && hasCardContent(b));
       if (live.length > 0) return live.map((b, i) => blockToBanner(b, i));
-      return DEFAULT_BANNERS;
+      return defaultBanners(tr);
     }
     const cats = activeCat.subs.length ? activeCat.subs : [activeCat.t];
     const seen = new Set<string>();
@@ -690,12 +701,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         tag: cats[i % cats.length].toUpperCase(),
         title: `${cats[i % cats.length]}`,
         sub: (() => { const f = fastestEta(filtered); return f ? `⚡ from ${f} min • ${activeCat.sub}` : activeCat.sub; })(),
-        cta: "Explore",
+        cta: tr("hmExplore"),
         colors: BANNER_TINTS[i % BANNER_TINTS.length],
       });
     }
     return base;
-  }, [activeCat, filtered, homeBlocks]);
+  }, [activeCat, filtered, homeBlocks, tr]);
 
   // Banner tap → admin link. Never dead: bad store/category falls back to search.
   const tapBanner = (b: Banner) => {
@@ -759,19 +770,25 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         <Pressable onPress={() => { setLocOpen(true); blip(560); }} style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 14.5, letterSpacing: -0.3, color: onDark ? "#fff" : colors.ink, maxWidth: 150 }}>
-              {addressArea || "Set location"}
+              {addressArea || tr("hmSetLocation")}
             </Text>
             <ChevronDown size={15} strokeWidth={2.8} color={onDark ? "#fff" : colors.ink} />
           </View>
           <Text numberOfLines={1} style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: onDark ? "rgba(255,255,255,.75)" : colors.ink3 }}>
-            {address || "Tap to add delivery address"}
+            {address || tr("hmTapAddress")}
           </Text>
         </Pressable>
       </View>
-      <Pressable onPress={() => set({ tab: "profile" })} style={{ height: 40, width: 40, borderRadius: 20, overflow: "hidden" }}>
-        <LinearGradient colors={["#0E3B2E", "#1FB67C"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontFamily: F.extra, fontSize: 17, color: "#fff" }}>{userAvatar || (userName ? userName[0].toUpperCase() : "👤")}</Text>
-        </LinearGradient>
+      <Pressable
+        onPress={() => { set({ showCart: true }); blip(700); }}
+        style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: onDark ? "rgba(255,255,255,.18)" : colors.chip }}
+      >
+        <ShoppingCart size={18} strokeWidth={2.4} color={onDark ? "#fff" : colors.ink} />
+        {cartCount > 0 && (
+          <View style={{ position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#E23744", alignItems: "center", justifyContent: "center", paddingHorizontal: 5, borderWidth: 2, borderColor: onDark ? "#1B0B4D" : colors.surface }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#fff" }}>{cartCount > 99 ? "99+" : String(cartCount)}</Text>
+          </View>
+        )}
       </Pressable>
       <Pressable onPress={() => { set({ dark: !dark }); blip(700); }} style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: onDark ? "rgba(255,255,255,.18)" : colors.chip }}>
         {dark ? <Sun size={17} color="#fff" /> : <Moon size={17} color={onDark ? "#fff" : colors.ink} />}
@@ -788,7 +805,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
       >
         <Search size={18} strokeWidth={2.6} color="#E23744" />
         <Text numberOfLines={1} style={{ flex: 1, fontFamily: F.medium, fontSize: 13.5, color: onDark ? "#666" : colors.ink3 }}>
-          {cfg.searchPlaceholder || "Search…"}
+          {cfg.searchPlaceholder || tr("hmSearchPh")}
         </Text>
         <View style={{ height: 20, width: 1, backgroundColor: onDark ? "#eee" : colors.line }} />
         <Mic size={17} color={onDark ? "#888" : colors.ink2} />
@@ -912,15 +929,15 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12, opacity: 1 }}>
           <View>
             <Text style={{ fontFamily: F.extra, fontSize: 19, letterSpacing: -0.4, color: colors.ink }}>
-              {g.label}, {userName || "there"} 👋{editing ? " ✏️" : ""}
+              {g.label}, {userName || tr("hmThere")} 👋{editing ? " ✏️" : ""}
             </Text>
             <Text style={{ fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>
-              {cfg.greetingSub || g.sub}{(() => { const f = fastestEta(stores); return f ? <> • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>{f} min</Text> fastest</> : ""; })()}
+              {cfg.greetingSub || g.sub}{(() => { const f = fastestEta(stores); return f ? <> • <Text style={{ fontFamily: F.bold, color: "#0C831F" }}>{f} min</Text> {tr("hmFastest")}</> : ""; })()}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: "#0E3B2E", paddingHorizontal: 10, paddingVertical: 6 }}>
             <LiveDot color="#34D399" />
-            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#D8F34E" }}>{(cfg.liveBadge || "LIVE").toUpperCase()}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#D8F34E" }}>{(cfg.liveBadge || tr("hmLive")).toUpperCase()}</Text>
           </View>
         </View>
         </Pressable>
@@ -929,10 +946,10 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         {showCategories && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: -0.2, color: colors.ink }}>{cfg.categoriesTitle || `Explore ${allCats.length} categories`}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: -0.2, color: colors.ink }}>{cfg.categoriesTitle || tr("hmExploreCats", { n: allCats.length })}</Text>
             {activeCat && (
               <Pressable onPress={() => { set({ category: "all" }); blip(480); }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#E23744" }}>Clear ✕</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#E23744" }}>{tr("hmClear")}</Text>
               </Pressable>
             )}
           </View>
@@ -966,7 +983,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                     <ChevronRight size={16} strokeWidth={3} color="#fff" />
                   </View>
                 </View>
-                <Text numberOfLines={2} style={{ height: 28, fontFamily: F.extra, fontSize: 10.5, lineHeight: 13, textAlign: "center", color: colors.ink2 }}>See all</Text>
+                <Text numberOfLines={2} style={{ height: 28, fontFamily: F.extra, fontSize: 10.5, lineHeight: 13, textAlign: "center", color: colors.ink2 }}>{tr("hmSeeAll")}</Text>
               </SpringBtn>
             </Animated.View>
           </View>
@@ -981,12 +998,12 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                 <Img src={activeCat.img} style={{ width: "100%", height: "100%" }} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: activeCat.accent }}>{activeCat.t} • {filtered.length} stores</Text>
-                <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{activeCat.sub}{(() => { const f = fastestEta(filtered); return f ? ` • fastest ${f} min` : ""; })()}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: activeCat.accent }}>{activeCat.t} • {tr("hmStoresW", { n: filtered.length })}</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{activeCat.sub}{(() => { const f = fastestEta(filtered); return f ? ` • ${tr("hmFastest")} ${f} min` : ""; })()}</Text>
               </View>
               {(() => { const f = fastestEta(filtered); return f ? (
                 <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat.accent }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#fff" }}>⚡ {f} min</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#fff" }}>{tr("hmActiveEta", { f })}</Text>
                 </View>
               ) : null; })()}
             </View>
@@ -1061,15 +1078,15 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         <View style={{ paddingTop: 12 }}>
           <View style={{ paddingHorizontal: 16 }}>
             <SectionHead
-              title={activeCat ? activeCat.t : "Shop by craving"}
-              sub={activeCat ? `${filtered.length} stores nearby` : "Blinkit-fast • Zomato-tasty"}
+              title={activeCat ? activeCat.t : tr("hmShopCraving")}
+              sub={activeCat ? tr("hmStoresNearby", { n: filtered.length }) : tr("hmBlinkit")}
               action={
                 activeCat ? (
                   <Pressable onPress={() => { set({ category: "all" }); blip(480); }}>
                     <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Clear ✕</Text>
                   </Pressable>
                 ) : (
-                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>see all ›</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>{tr("hmSeeAllLow")}</Text>
                 )
               }
             />
@@ -1102,7 +1119,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         <View style={{ paddingTop: 16 }}>
           <View style={{ paddingHorizontal: 16 }}>
             <SectionHead
-              title={activeCat ? `Top picks in ${activeCat.t}` : "⚡ Essentials in minutes"}
+              title={activeCat ? tr("hmTopPicks", { cat: activeCat.t }) : tr("hmEssentials")}
               sub={activeCat ? `${quickPicks.length} items • delivered by local stores` : `From ${stores.slice(0, 3).map((s) => s.name.split(" ")[0]).join(" • ") || "local stores"}`}
               action={
                 <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: activeCat?.accent ?? "#0C831F" }}>
@@ -1187,7 +1204,7 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
         {/* active-cat feed */}
         {activeCat && (
           <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-            <SectionHead title={`${activeCat.t} near you`} sub={`${restList.length} places • delivering now`} action={<Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>Sort ▾</Text>} />
+            <SectionHead title={tr("hmNearYou", { cat: activeCat.t })} sub={tr("hmPlaces", { n: restList.length })} action={<Text style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>{tr("hmSort")}</Text>} />
             <View style={{ marginTop: 12, gap: 16 }}>
               {restList.map((s, i) => (
                 <ZomatoCard key={s.id} id={s.id} index={i} onOpen={() => onStore(s.id)} />
@@ -1221,10 +1238,10 @@ export function CustomerHome({ onStore }: { onStore: (id: string) => void }) {
                 <Text style={{ fontSize: 12 }}>{festivalTheme.emoji}</Text>
                 <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 2, color: "#FFD166" }}>{(liveFestival?.tag || cfg.festivalTitle || "FESTIVAL").toUpperCase()}</Text>
               </View>
-              <Text style={{ marginTop: 4, fontFamily: cardTitleFamily(liveFestival ?? { font: "serif" }), fontSize: 21, lineHeight: 26, color: liveFestival?.tcolor || "#fff" }}>{liveFestival?.title || cfg.festivalTitle || "Festive picks for you"}{"\n"}{liveFestival?.sub || cfg.festivalSub || ""}</Text>
+              <Text style={{ marginTop: 4, fontFamily: cardTitleFamily(liveFestival ?? { font: "serif" }), fontSize: 21, lineHeight: 26, color: liveFestival?.tcolor || "#fff" }}>{liveFestival?.title || cfg.festivalTitle || tr("hmFestive")}{"\n"}{liveFestival?.sub || cfg.festivalSub || ""}</Text>
               <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
                 <View style={{ borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 8 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || cfg.festivalCta || "Shop now"}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: "#111114" }}>{liveFestival?.cta || cfg.festivalCta || tr("hmShopNow")}</Text>
                 </View>
               </View>
             </View>
@@ -1915,6 +1932,7 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
 }) {
   const set = useOSB((s) => s.set);
   const { colors } = useTheme();
+  const tr = useTx();
   const { stores: allStores, products: allProducts } = useMarketplace();
   return (
     <View>
@@ -1939,16 +1957,16 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>Home services</Text>
+                      <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{tr("hmServices")}</Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 6, backgroundColor: "rgba(12,131,31,.1)", paddingHorizontal: 6, paddingVertical: 2 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#0C831F" }}>✓ VERIFIED</Text>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#0C831F" }}>{tr("hmVerified")}</Text>
                       </View>
                     </View>
                     <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
                       {stores.length} pros{(() => { const f = fastestEta(stores); return f ? ` • visit from ${f} min` : ""; })()}
                     </Text>
                   </View>
-                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: c.accent }}>Book ›</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 12, color: c.accent }}>{tr("hmBookArrow")}</Text>
                 </Pressable>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 10, gap: 6 }}>
                   {c.subs.slice(0, 8).map((s) => (
@@ -1983,7 +2001,7 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
                 </View>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: c.accent }}>{c.k === "service" ? "Book" : "See all"}</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: c.accent }}>{c.k === "service" ? tr("hmBook") : tr("hmSeeAll")}</Text>
                 <ChevronRight size={13} color={c.accent} />
               </View>
             </Pressable>
@@ -1998,7 +2016,7 @@ export function CategoryRails({ cats, onStore, feedAds, editing, onTapAd, onEdit
                 <View style={{ height: 36, width: 36, borderRadius: 18, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
                   <ChevronRight size={17} color="#fff" />
                 </View>
-                <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 10.5, color: colors.ink }}>View all</Text>
+                <Text style={{ marginTop: 6, fontFamily: F.extra, fontSize: 10.5, color: colors.ink }}>{tr("hmViewAll")}</Text>
               </Pressable>
             </ScrollView>
           </View>
@@ -2036,6 +2054,7 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
   const addToCart = useOSB((s) => s.addToCart);
   const decCart = useOSB((s) => s.decCart);
   const { colors } = useTheme();
+  const tr = useTx();
   if (!p) return null;
   const out = isOutOfStock(p);
   const qty = cart.find((c) => c.productId === pid)?.qty ?? 0;
@@ -2051,17 +2070,17 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
         <Img src={p.image} style={{ width: "100%", height: "100%" }} />
         {out && (
           <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.5, color: "#fff" }}>{isSvc ? "SLOTS FULL" : "OUT OF STOCK"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.5, color: "#fff" }}>{isSvc ? tr("hmSlotFull") : tr("hmOos")}</Text>
           </View>
         )}
         {!out && off > 0 && (
           <View style={{ position: "absolute", left: 6, top: 6, borderRadius: 6, backgroundColor: "#256FEF", paddingHorizontal: 6, paddingVertical: 2 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#fff" }}>{off}% OFF</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#fff" }}>{tr("hmOff", { off })}</Text>
           </View>
         )}
         {p.isBestseller && (
           <View style={{ position: "absolute", left: 6, bottom: 6, borderRadius: 6, backgroundColor: "rgba(0,0,0,.65)", paddingHorizontal: 6, paddingVertical: 2 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.5, color: "#fff" }}>★ BESTSELLER</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.5, color: "#fff" }}>{tr("hmBest")}</Text>
           </View>
         )}
       </View>
@@ -2084,11 +2103,11 @@ export function BlinkitCard({ pid, index, storeLabel }: { pid: string; index: nu
           </View>
           {out ? (
             <View style={{ borderRadius: 8, backgroundColor: colors.chip, paddingHorizontal: 8, paddingVertical: 6 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{isSvc ? "SLOTS\nFULL" : "OUT OF\nSTOCK"}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{isSvc ? tr("hmSlotFull").replace(/ /g, "\n") : tr("hmOos").replace(/ /g, "\n")}</Text>
             </View>
           ) : isSvc ? (
             <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, borderWidth: 1.5, borderColor: "#7C5CFF", paddingHorizontal: 12, paddingVertical: 6 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#7C5CFF" }}>Book</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#7C5CFF" }}>{tr("hmBook")}</Text>
             </Pressable>
           ) : (
             <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
@@ -2111,6 +2130,7 @@ export function ZomatoCard({ id, index, onOpen }: { id: string; index: number; o
   const wish = useOSB((x) => x.wishlist);
   const toggleWish = useOSB((x) => x.toggleWish);
   const { colors } = useTheme();
+  const tr = useTx();
   const suppress = useRef(0);
   if (!s) return null;
   const liked = wish.includes(s.id);
@@ -2143,11 +2163,11 @@ export function ZomatoCard({ id, index, onOpen }: { id: string; index: number; o
           </Pressable>
           {s.isPureVeg && (
             <View style={{ position: "absolute", left: 10, top: 10, borderRadius: 6, backgroundColor: "rgba(255,255,255,.95)", paddingHorizontal: 6, paddingVertical: 4 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#0C831F" }}>PURE VEG</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#0C831F" }}>{tr("hmPureVeg")}</Text>
             </View>
           )}
           <View style={{ position: "absolute", right: 10, bottom: 36, borderRadius: 8, backgroundColor: "rgba(255,255,255,.95)", paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#111114" }}>{s.kind === "service" ? `🛠️ visit ~${s.etaMins} min` : `⏱ ${s.etaMins} min • ${s.distanceKm} km`}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: "#111114" }}>{s.kind === "service" ? tr("hmVisitMin", { m: s.etaMins }) : tr("hmEtaKm", { m: s.etaMins, km: s.distanceKm })}</Text>
           </View>
         </View>
         <View style={{ padding: 14 }}>
@@ -2163,12 +2183,12 @@ export function ZomatoCard({ id, index, onOpen }: { id: string; index: number; o
               <Bike size={13} color={colors.ink3} />
               <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>
                 {s.kind === "service"
-                  ? `${s.deliveryFee === 0 ? "Visit FREE" : `₹${s.deliveryFee} visit`} • ${s.openHours}`
-                  : `${s.deliveryFee === 0 ? "FREE delivery" : `₹${s.deliveryFee} delivery`} • ${s.priceForTwo} for two`}
+                  ? `${s.deliveryFee === 0 ? tr("hmVisitFree") : tr("hmVisitFee", { fee: s.deliveryFee })} • ${s.openHours}`
+                  : `${s.deliveryFee === 0 ? tr("cartFreeDel") : tr("cartFeeDel", { fee: s.deliveryFee })} • ${s.priceForTwo} ${tr("stForTwo")}`}
               </Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: s.kind === "service" ? "#7C5CFF" : "#E23744" }}>{s.kind === "service" ? "BOOK" : "MENU"}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11.5, color: s.kind === "service" ? "#7C5CFF" : "#E23744" }}>{s.kind === "service" ? tr("hmBookCaps") : tr("hmMenuCaps")}</Text>
               <ChevronRight size={13} color={s.kind === "service" ? "#7C5CFF" : "#E23744"} />
             </View>
           </View>
@@ -2185,6 +2205,7 @@ export function SearchTab() {
   const cart = useOSB((s) => s.cart);
   const addToCart = useOSB((s) => s.addToCart);
   const decCart = useOSB((s) => s.decCart);
+  const tr = useTx();
   const { colors } = useTheme();
   const { stores, products } = useMarketplace();
   const [listening, setListening] = useState(false);
@@ -2203,7 +2224,7 @@ export function SearchTab() {
           autoFocus
           value={query}
           onChangeText={(t) => set({ query: t })}
-          placeholder="Search biryani, milk, plumber…"
+          placeholder={tr("srchPh")}
           placeholderTextColor={colors.ink3}
           style={{ flex: 1, fontFamily: F.semi, fontSize: 14.5, color: colors.ink, paddingVertical: 8 }}
         />
@@ -2226,7 +2247,7 @@ export function SearchTab() {
           <View style={{ height: 64, width: 64, borderRadius: 32, backgroundColor: "rgba(255,255,255,.12)", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#D8F34E" }}>
             <Mic size={26} color="#fff" />
           </View>
-          <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 14, color: "#fff" }}>Listening… “extra cheese dosa”</Text>
+          <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 14, color: "#fff" }}>{tr("srchListening")}</Text>
           <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
             {[8, 16, 22, 12, 20, 10, 14].map((h, i) => (
               <View key={i} style={{ width: 4, height: h, borderRadius: 2, backgroundColor: "#D8F34E" }} />
@@ -2237,7 +2258,7 @@ export function SearchTab() {
       {query.trim() === "" ? (
         <View>
           <View style={{ marginTop: 16 }}>
-            <SectionHead title="Trending in HSR" sub="12k people searching now" />
+            <SectionHead title={tr("srchTrending")} sub={tr("srchSearching")} />
           </View>
           <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {TRENDING.map((t, i) => (
@@ -2251,10 +2272,10 @@ export function SearchTab() {
           </View>
           <View style={{ marginTop: 16, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             {[
-              { t: "Midnight biryani", s: "4 places open", img: STORES[0].image },
-              { t: "Milk in 12 min", s: "Subscribe & save", img: STORES[5].image },
-              { t: "Plumber today", s: "4.9★ pros", img: STORES[8].image },
-              { t: "Cake in 30 min", s: "Free card", img: STORES[7].image },
+              { t: tr("srchC1t"), s: tr("srchC1s"), img: STORES[0].image },
+              { t: tr("srchC2t"), s: tr("srchC2s"), img: STORES[5].image },
+              { t: tr("srchC3t"), s: tr("srchC3s"), img: STORES[8].image },
+              { t: tr("srchC4t"), s: tr("srchC4s"), img: STORES[7].image },
             ].map((c, i) => (
               <Animated.View key={c.t} entering={FadeIn.delay(100 + i * 60)} style={{ width: "48%" }}>
                 <View style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
@@ -2275,8 +2296,8 @@ export function SearchTab() {
           {results.length === 0 && (
             <Glass style={{ padding: 32, alignItems: "center" }}>
               <Text style={{ fontSize: 44 }}>🍳</Text>
-              <Text style={{ marginTop: 8, fontFamily: F.display, fontSize: 17, color: colors.ink }}>No match for “{query}”</Text>
-              <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>Try biryani, milk, plumber…</Text>
+              <Text style={{ marginTop: 8, fontFamily: F.display, fontSize: 17, color: colors.ink }}>{tr("srchNoMatch", { q: query })}</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>{tr("srchTry")}</Text>
             </Glass>
           )}
           {results.map((r, i) => (
@@ -2293,7 +2314,7 @@ export function SearchTab() {
               {r.t === "product" ? (
                 isOutOfStock(r.p) ? (
                   <View style={{ borderRadius: 8, backgroundColor: colors.chip, paddingHorizontal: 10, paddingVertical: 7 }}>
-                    <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>OUT OF STOCK</Text>
+                    <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: colors.ink3 }}>{tr("hmOos")}</Text>
                   </View>
                 ) : (
                 <AddStepper
@@ -2319,37 +2340,39 @@ export function SearchTab() {
 export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
   const orders = useOSB((s) => s.orders);
   const set = useOSB((s) => s.set);
+  const language = useOSB((s) => s.language);
+  const tr = useTx();
   const { colors } = useTheme();
   if (orders.length === 0)
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 160 }}>
-        <Text style={{ paddingHorizontal: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>Your orders</Text>
+        <Text style={{ paddingHorizontal: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>{tr("ordTitle")}</Text>
         <View style={{ marginTop: 12, borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden", alignItems: "center" }}>
           <View style={{ position: "relative", height: 190, width: "100%" }}>
             <Img src={STORES[0].image} style={{ width: "100%", height: "100%" }} />
             <LinearGradient colors={["transparent", "rgba(0,0,0,.55)"]} style={{ position: "absolute", width: "100%", height: "100%" }} />
             <Text style={{ position: "absolute", left: 24, bottom: 16, fontSize: 52 }}>🛵</Text>
             <View style={{ position: "absolute", right: 16, bottom: 16, borderRadius: 999, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#111114" }}>30 min avg</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#111114" }}>{tr("ordAvg")}</Text>
             </View>
           </View>
           <View style={{ padding: 24, alignItems: "center" }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 17, color: colors.ink }}>No orders yet — bhook lagi?</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 17, color: colors.ink }}>{tr("ordEmptyT")}</Text>
             <Text style={{ marginTop: 4, maxWidth: 260, fontFamily: F.medium, fontSize: 12.5, lineHeight: 18, color: colors.ink2, textAlign: "center" }}>
-              Hot biryani, cold milk or fixed tap — all 20 mins away.
+              {tr("ordEmptyS")}
             </Text>
             <Pressable onPress={() => set({ tab: "home" })} style={{ marginTop: 16, borderRadius: 999, backgroundColor: "#E23744", paddingHorizontal: 24, paddingVertical: 12 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>Explore nearby</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>{tr("ordExplore")}</Text>
             </Pressable>
           </View>
         </View>
         <View style={{ marginTop: 16, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Truck size={16} color={colors.ink} />
-            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>How delivery works here</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{tr("ordHow")}</Text>
           </View>
           <Text style={{ marginTop: 6, fontFamily: F.medium, fontSize: 12.5, lineHeight: 19, color: colors.ink2 }}>
-            Every store delivers with <Text style={{ fontFamily: F.extra, color: colors.ink }}>its own team</Text>. One Stop Bazar gives ordering, payments & analytics — fresher, faster.
+            {tr("ordHowS1")} <Text style={{ fontFamily: F.extra, color: colors.ink }}>{tr("ordHowS2")}</Text>{tr("ordHowS3")}
           </Text>
         </View>
       </ScrollView>
@@ -2357,7 +2380,7 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 160 }}>
       <Text style={{ paddingHorizontal: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>
-        Orders <Text style={{ fontSize: 14, color: colors.ink3 }}>({orders.length})</Text>
+        {tr("ordHead", { n: orders.length })}
       </Text>
       <View style={{ marginTop: 12, gap: 12 }}>
         {orders.map((o, i) => (
@@ -2372,20 +2395,20 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
                     <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: F.extra, fontSize: 13.5, color: colors.ink }}>{o.storeName}</Text>
                     {o.kind === "service" && (
                       <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 6, paddingVertical: 1 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.5, color: "#7C5CFF" }}>BOOKING</Text>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9, letterSpacing: 0.5, color: "#7C5CFF" }}>{tr("trkBooking")}</Text>
                       </View>
                     )}
                   </View>
                   <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink3 }}>
                     {o.kind === "service"
-                      ? `${o.code} • 🗓 ${o.slotLabel ?? "slot"} • ${inr(o.total)}${o.payStatus === "pending" ? " • due after service" : " • paid"}`
-                      : `${o.code} • ${o.items.length} items • ${inr(o.total)}`}
+                      ? `${o.code} • 🗓 ${o.slotLabel ?? tr("trkSlotWord")} • ${inr(o.total)}${o.payStatus === "pending" ? tr("ordDue") : tr("ordPaidDot")}`
+                      : `${o.code} • ${tr("wItems", { n: o.items.length })} • ${inr(o.total)}`}
                   </Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: o.status === "cancelled" ? "rgba(226,55,68,.1)" : o.status === "new" ? "#FEF3C7" : "rgba(12,131,31,.08)" }}>
                   <LiveDot color={o.status === "cancelled" ? "#E23744" : o.status === "new" ? "#E8830C" : "#0C831F"} />
                   <Text style={{ fontFamily: F.extra, fontSize: 10.5, color: o.status === "cancelled" ? "#E23744" : o.status === "new" ? "#92400E" : "#0C831F" }}>
-                    {statusLabel(o.status)}
+                    {statusLabel(o.status, language)}
                   </Text>
                 </View>
               </View>
@@ -2395,7 +2418,7 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Text style={{ fontFamily: F.extra, fontSize: 12, color: o.kind === "service" ? "#7C5CFF" : "#E23744" }}>
-                    {o.kind === "service" && (o.status === "new" || o.status === "accepted") ? "View" : "Track"}
+                    {o.kind === "service" && (o.status === "new" || o.status === "accepted") ? tr("ordView") : tr("ordTrack")}
                   </Text>
                   <ChevronRight size={14} color={o.kind === "service" ? "#7C5CFF" : "#E23744"} />
                 </View>
@@ -2412,17 +2435,18 @@ export function OrdersTab({ onTrack }: { onTrack: (id: string) => void }) {
 export function SavedTab({ onStore }: { onStore: (id: string) => void }) {
   const wishlist = useOSB((s) => s.wishlist);
   const toggleWish = useOSB((s) => s.toggleWish);
+  const tr = useTx();
   const { colors } = useTheme();
   const items = PRODUCTS.filter((p) => wishlist.includes(p.id));
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 160 }}>
-      <Text style={{ paddingHorizontal: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>Favourites ❤️</Text>
-      <Text style={{ paddingHorizontal: 4, fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{items.length} saved • {wishlist.length} stores followed</Text>
+      <Text style={{ paddingHorizontal: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>{tr("savTitle")}</Text>
+      <Text style={{ paddingHorizontal: 4, fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{tr("savSub", { a: items.length, b: wishlist.length })}</Text>
       {items.length === 0 ? (
         <Glass style={{ marginTop: 12, padding: 32, alignItems: "center" }}>
           <Text style={{ fontSize: 52 }}>💌</Text>
-          <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 17, color: colors.ink }}>Nothing saved yet</Text>
-          <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>Tap the heart on anything you love.</Text>
+          <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 17, color: colors.ink }}>{tr("savEmptyT")}</Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: colors.ink2 }}>{tr("savEmptyS")}</Text>
         </Glass>
       ) : (
         <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -2482,9 +2506,11 @@ export function ProfileTab() {
    const role = useOSB((s) => s.role);
    const walletPoints = useOSB((s) => s.walletPoints);
    const syncWallet = useOSB((s) => s.syncWallet);
-   const myReferralCode = useOSB((s) => s.myReferralCode);
-   const [refCount, setRefCount] = useState<number | null>(null);
-   const t = useT();
+    const myReferralCode = useOSB((s) => s.myReferralCode);
+    const [refCount, setRefCount] = useState<number | null>(null);
+    const [refSharing, setRefSharing] = useState(false);
+    const t = useT();
+    const tr = useTx();
    // Live subtitles (backend-first, static fallback) — sheet bandh hote hi refresh.
    const [couponCount, setCouponCount] = useState(4);
    const [revStat, setRevStat] = useState("23 reviews • 4.8 avg");
@@ -2515,30 +2541,33 @@ export function ProfileTab() {
    }, []);
    const closeSheet = () => { setSheet(null); refreshStats(); syncWallet(); };
 
-   // Refer link + code share (WhatsApp / SMS / anywhere).
-   const shareRefer = async () => {
-     blip(700);
-     let code = myReferralCode;
-     if (!code) {
-       try {
-         const j = await apiGetReferrals();
-         if (j?.ok && j.code) {
-           code = j.code;
-           useOSB.getState().setWallet({ referralCode: j.code });
-           if (typeof j.count === "number") setRefCount(j.count);
-         }
-       } catch { /* offline */ }
-     }
-     if (!code) {
-       Alert.alert("Refer code abhi ready nahi", "Internet on karke 10 sec baad retry karo (server sync pending).");
-       return;
-     }
-     try {
-       await Share.share({
-         message: `One Stop Bazar pe aao! 🛍️ Mera refer code ${code} register karte time dalo aur ₹5 welcome bonus pao. Link: https://onestopbazar.app/r/${code}`,
-       });
-     } catch { /* dismissed */ }
-   };
+    // Refer link + code share (WhatsApp / SMS / anywhere).
+    const shareRefer = async () => {
+      if (refSharing) return;
+      blip(700);
+      let code = myReferralCode;
+      if (!code) {
+        setRefSharing(true);
+        try {
+          const j = await apiGetReferrals();
+          if (j?.ok && j.code) {
+            code = j.code;
+            useOSB.getState().setWallet({ referralCode: j.code });
+            if (typeof j.count === "number") setRefCount(j.count);
+          }
+        } catch { /* offline */ }
+        finally { setRefSharing(false); }
+      }
+      if (!code) {
+        Alert.alert(tr("refNotReadyT"), tr("refNotReadyM"));
+        return;
+      }
+      try {
+        await Share.share({
+          message: tr("refShare", { code, link: `https://onestopbazar.app/r/${code}` }),
+        });
+      } catch { /* dismissed */ }
+    };
 
    const rows = useMemo(() => {
      const base: [string, string, string, SheetKind | "admin"][] = [
@@ -2641,7 +2670,7 @@ export function ProfileTab() {
                   <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 2.4, color: "#F8CB46" }}>
                     {seller.onboarded ? "✦ SAVED TO YOUR NUMBER" : "✦ ONE ACCOUNT • TWO WORLDS"}
                   </Text>
-                  <Text style={{ fontFamily: F.extra, fontSize: 19, color: "#fff" }}>{seller.onboarded ? seller.name : "Become a Provider 🚀"}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 19, color: "#fff" }}>{seller.onboarded ? seller.name : t("youProvider")}</Text>
                 </View>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 16, paddingTop: 12 }}>
@@ -2665,7 +2694,7 @@ export function ProfileTab() {
               <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>WALLET</Text>
             </View>
             <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, color: colors.ink }}>₹{Math.floor(walletPoints / 10)}</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{walletPoints} pts • tap to open</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{tr("youWalletTap", { n: walletPoints })}</Text>
           </Pressable>
           <Pressable onPress={() => void copyCoupon()} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -2678,7 +2707,7 @@ export function ProfileTab() {
               </View>
               <Copy size={13} color={colors.ink3} style={{ opacity: 0.5 }} />
             </View>
-            <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? "Copied ✓" : "Tap to copy"}</Text>
+            <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? tr("comCopied") : tr("comCopy")}</Text>
           </Pressable>
         </View>
 
@@ -2692,11 +2721,11 @@ export function ProfileTab() {
               <Gift size={22} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>Refer & earn 100 pts (₹10) 🎉</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>{tr("refTitle", { pts: REFER_REWARD_POINTS, rs: REFER_REWARD_POINTS / POINTS_PER_RUPEE })}</Text>
               <Text style={{ fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.8)" }}>
                 {myReferralCode
-                  ? `Tumhara code: ${myReferralCode}${refCount != null ? ` • ${refCount} friend${refCount === 1 ? "" : "s"} joined` : ""}`
-                  : "Apna code nikalo aur doston ko bhejo"}
+                  ? tr("refHaveCode", { code: myReferralCode }) + (refCount != null ? (refCount === 1 ? tr("refJoinedOne") : tr("refJoinedMany", { n: refCount })) : "")
+                  : tr("refNoCode")}
               </Text>
             </View>
             <Pressable
@@ -2704,7 +2733,7 @@ export function ProfileTab() {
               style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 10 }}
             >
               <Send size={14} color="#0C831F" />
-              <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#0C831F" }}>Invite</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#0C831F" }}>{refSharing ? tr("comLoading") : tr("refInvite")}</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -2736,7 +2765,7 @@ export function ProfileTab() {
         <Pressable onPress={doLogout} style={{ marginTop: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, alignItems: "center" }}>
           <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#E23744" }}>{t("youLogout")}</Text>
         </Pressable>
-        <Text style={{ marginTop: 16, fontFamily: F.semi, fontSize: 11, color: colors.ink3, textAlign: "center" }}>One Stop Bazar • OTP login only 🇮🇳</Text>
+        <Text style={{ marginTop: 16, fontFamily: F.semi, fontSize: 11, color: colors.ink3, textAlign: "center" }}>{tr("youOtpOnly")}</Text>
       </ScrollView>
       {sheet === "edit" && <EditProfileSheet onClose={closeSheet} />}
       {sheet === "loc" && <ChangeLocationSheet onClose={closeSheet} />}
@@ -2762,6 +2791,7 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
   const toggleWish = useOSB((x) => x.toggleWish);
   const wish = useOSB((x) => x.wishlist);
   const { colors } = useTheme();
+  const tr = useTx();
   const [tab, setTab] = useState("menu");
   if (!s) return null;
   const liked = wish.includes(s.id);
@@ -2784,21 +2814,21 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
             <View style={{ position: "absolute", left: 16, right: 16, bottom: 12, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: "#fff" }}>{s.name}</Text>
-                <Text style={{ marginTop: 4, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{s.cuisine ?? s.tagline} • {s.priceForTwo} for two</Text>
+                <Text style={{ marginTop: 4, fontFamily: F.semi, fontSize: 12, color: "rgba(255,255,255,.85)" }}>{s.cuisine ?? s.tagline} • {s.priceForTwo} {tr("stForTwo")}</Text>
               </View>
               <Rating v={s.rating} count={s.ratingsCount} />
             </View>
           </View>
           <View style={{ marginHorizontal: 16, marginTop: -14, flexDirection: "row", gap: 8 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 8 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>⏱ {s.etaMins} mins</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{tr("stMins", { m: s.etaMins })}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 8 }}>
               <Bike size={12} color={colors.ink} />
-              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{s.deliveryFee === 0 ? "FREE" : `₹${s.deliveryFee}`}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{s.deliveryFee === 0 ? tr("cartFree") : tr("stFee", { fee: s.deliveryFee })}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 8 }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>📍 {s.distanceKm} km</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, color: colors.ink }}>{tr("stKm", { km: s.distanceKm })}</Text>
             </View>
           </View>
           {s.offers.length > 0 && (
@@ -2813,19 +2843,19 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
           )}
           <View style={{ marginHorizontal: 16, marginTop: 12, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: "rgba(12,131,31,.08)", paddingHorizontal: 14, paddingVertical: 10 }}>
             <Leaf size={15} color="#0C831F" />
-            <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 12, color: "#0C5B21" }}>Delivered by {s.name}’s own team • No middleman</Text>
+            <Text style={{ flex: 1, fontFamily: F.bold, fontSize: 12, color: "#0C5B21" }}>{tr("stOwnTeam", { name: s.name })}</Text>
           </View>
           <View style={{ marginHorizontal: 16, marginTop: 12, flexDirection: "row", gap: 8, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 4 }}>
             {["menu", "reviews", "info"].map((t) => (
               <Pressable key={t} onPress={() => setTab(t)} style={{ flex: 1, borderRadius: 999, paddingVertical: 8, backgroundColor: tab === t ? "#111114" : "transparent", alignItems: "center" }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: tab === t ? "#fff" : colors.ink3 }}>
-                  {t === "menu" ? `Menu (${menu.length})` : t[0].toUpperCase() + t.slice(1)}
+                  {t === "menu" ? tr("stMenu", { n: menu.length }) : t === "reviews" ? tr("stReviewsT") : tr("stInfo")}
                 </Text>
               </Pressable>
             ))}
           </View>
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: 1.5, color: colors.ink3 }}>RECOMMENDED ({menu.length})</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: 1.5, color: colors.ink3 }}>{tr("stRec", { n: menu.length })}</Text>
             <View style={{ marginTop: 10, gap: 12 }}>
               {menu.map((p, i) => {
                 const qty = cart.find((c) => c.productId === p.id)?.qty ?? 0;
@@ -2839,7 +2869,7 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
                         {p.isBestseller && (
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                             <Star size={9} fill="#E23744" color="#E23744" />
-                            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#E23744" }}>Bestseller</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#E23744" }}>{tr("stBest")}</Text>
                           </View>
                         )}
                       </View>
@@ -2863,24 +2893,24 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
                         )}
                         {out && (
                           <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>OUT OF STOCK</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>{tr("hmOos")}</Text>
                           </View>
                         )}
                       </View>
                       <View style={{ position: "absolute", bottom: 22, left: "50%", marginLeft: -36 }}>
                         {out ? (
                           <View style={{ borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 7 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{s.kind === "service" ? "SLOTS FULL" : "OUT OF STOCK"}</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{s.kind === "service" ? tr("stSlotFull") : tr("hmOos")}</Text>
                           </View>
                         ) : s.kind === "service" ? (
                           <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, backgroundColor: "#7C5CFF", paddingHorizontal: 22, paddingVertical: 8 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>Book</Text>
+                            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>{tr("stBook")}</Text>
                           </Pressable>
                         ) : (
                           <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
                         )}
                       </View>
-                      <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{s.kind === "service" ? `${p.unit} • ${p.eta ?? "fixed duration"}` : `${p.unit} • customizable`}</Text>
+                      <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{s.kind === "service" ? `${p.unit} • ${p.eta ?? tr("stFixed")}` : tr("stUnitCustom", { unit: p.unit })}</Text>
                     </View>
                   </Animated.View>
                 );

@@ -2,6 +2,63 @@ import { Linking } from "react-native";
 import { STORES } from "@/lib/data";
 import type { CartLine, LiveOrder, OrderStatus, SellerCoupon, SellerSettings } from "@/lib/osb-store";
 
+const OSRM_BASE = "https://router.project-osrm.org";
+
+export const OSM_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+/* OSRM route — free, no key. Returns { distance(m), duration(s), geometry } or null.
+   Rate limit ~100req/s on demo server — cache + fallback to straight-line. */
+const _routeCache = new Map<string, { distance: number; duration: number; geometry: { latitude: number; longitude: number }[] }>();
+export async function getRoute(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+): Promise<{ distance: number; duration: number; geometry: { latitude: number; longitude: number }[] } | null> {
+  const key = `${fromLat.toFixed(4)},${fromLng.toFixed(4)};${toLat.toFixed(4)},${toLng.toFixed(4)}`;
+  const cached = _routeCache.get(key);
+  if (cached) return cached;
+  try {
+    const url = `${OSRM_BASE}/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const route = j?.routes?.[0];
+    if (!route) return null;
+    const coords: { latitude: number; longitude: number }[] = (route.geometry?.coordinates ?? []).map((c: [number, number]) => ({ latitude: c[1], longitude: c[0] }));
+    const result = { distance: route.distance ?? 0, duration: route.duration ?? 0, geometry: coords };
+    _routeCache.set(key, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/** Straight-line distance (meters) — fallback when OSRM fails. */
+export function straightDist(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const hav = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
+}
+
+/** ETA from distance (m) — avg delivery speed 30 km/h = 8.33 m/s, +15% urban buffer. */
+export function distToEta(distMeters: number): number {
+  return Math.max(1, Math.round((distMeters / (8.33 * 0.85)) / 60));
+}
+
+/** BigDataCloud forward geocode — address → lat/lng (free, no key). */
+export async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const res = await fetch(`https://api.bigdatacloud.net/data/find-by-geolocation?localityLanguage=en&query=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    if (d.latitude != null && d.longitude != null) return { lat: d.latitude, lng: d.longitude };
+  } catch { /* noop */ }
+  return null;
+}
+
 export const CUSTOMER = { name: "Aarav Mehta", phone: "+91 98450 12345" };
 
 export function isMyStore(storeId: string, seller: SellerSettings) {
@@ -54,14 +111,17 @@ export interface CartQuote {
   reason?: string;
 }
 
-export function timeAgo(ts: number) {
+export type Lang2 = "en" | "hi";
+
+export function timeAgo(ts: number, lang: Lang2 = "en") {
   const s = Math.max(1, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
+  const ago = lang === "hi" ? "पहले" : "ago";
+  if (s < 60) return lang === "hi" ? `${s} सेकंड ${ago}` : `${s}s ago`;
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return lang === "hi" ? `${m} मिनट ${ago}` : `${m} min ago`;
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} hr ago`;
-  return `${Math.round(h / 24)}d ago`;
+  if (h < 24) return lang === "hi" ? `${h} घंटे ${ago}` : `${h} hr ago`;
+  return lang === "hi" ? `${Math.round(h / 24)} दिन ${ago}` : `${Math.round(h / 24)}d ago`;
 }
 
 export function statusStep(status: OrderStatus): number {
@@ -72,8 +132,8 @@ export function statusStep(status: OrderStatus): number {
   return 3;
 }
 
-export function statusLabel(status: OrderStatus) {
-  const map: Record<OrderStatus, string> = {
+export function statusLabel(status: OrderStatus, lang: Lang2 = "en") {
+  const en: Record<OrderStatus, string> = {
     new: "Waiting for store",
     accepted: "Accepted",
     preparing: "Preparing",
@@ -82,7 +142,17 @@ export function statusLabel(status: OrderStatus) {
     delivered: "Delivered",
     cancelled: "Cancelled",
   };
-  return map[status];
+  if (lang === "en") return en[status];
+  const hi: Record<OrderStatus, string> = {
+    new: "स्टोर का इंतज़ार",
+    accepted: "Accept हुआ",
+    preparing: "बन रहा है",
+    ready: "पिकअप के लिए तैयार",
+    onway: "रास्ते में",
+    delivered: "डिलीवर हो गया",
+    cancelled: "कैंसिल",
+  };
+  return hi[status];
 }
 
 /**
@@ -91,20 +161,32 @@ export function statusLabel(status: OrderStatus) {
  * → onway = pro out for service (tabhi map live) → ready = pro reached
  * → delivered = service done. `preparing` service flow me skip hota hai.
  */
-export function serviceStatusText(o: { status: OrderStatus; slotLabel?: string | null }): string {
+export function serviceStatusText(o: { status: OrderStatus; slotLabel?: string | null }, lang: Lang2 = "en"): string {
+  const slot = o.slotLabel ? (lang === "hi" ? `Schedule कन्फर्म • ${o.slotLabel}` : `Schedule confirmed • ${o.slotLabel}`) : (lang === "hi" ? "Schedule कन्फर्म" : "Schedule confirmed");
   switch (o.status) {
-    case "new": return "Booking sent — waiting for confirmation";
-    case "accepted": return o.slotLabel ? `Schedule confirmed • ${o.slotLabel}` : "Schedule confirmed";
-    case "preparing": return o.slotLabel ? `Schedule confirmed • ${o.slotLabel}` : "Schedule confirmed";
-    case "onway": return "Pro is out for service";
-    case "ready": return "Pro has reached your location ✓";
-    case "delivered": return "Service completed 🎉";
-    case "cancelled": return "Booking cancelled";
+    case "new": return lang === "hi" ? "बुकिंग भेजी — कन्फर्मेशन बाकी" : "Booking sent — waiting for confirmation";
+    case "accepted": return slot;
+    case "preparing": return slot;
+    case "onway": return lang === "hi" ? "प्रो सर्विस के लिए निकला" : "Pro is out for service";
+    case "ready": return lang === "hi" ? "प्रो तुम्हारी लोकेशन पे पहुँचा ✓" : "Pro has reached your location ✓";
+    case "delivered": return lang === "hi" ? "सर्विस पूरी 🎉" : "Service completed 🎉";
+    case "cancelled": return lang === "hi" ? "बुकिंग कैंसिल" : "Booking cancelled";
   }
 }
 
 /** Status pill — service me booking vocabulary. */
-export function serviceStatusPill(status: OrderStatus): string {
+export function serviceStatusPill(status: OrderStatus, lang: Lang2 = "en"): string {
+  if (lang === "hi") {
+    switch (status) {
+      case "new": return "बुकिंग भेजी";
+      case "accepted": return "कन्फर्म";
+      case "preparing": return "कन्फर्म";
+      case "onway": return "प्रो रास्ते में";
+      case "ready": return "प्रो पहुँचा";
+      case "delivered": return "पूरा हुआ";
+      case "cancelled": return "कैंसिल";
+    }
+  }
   switch (status) {
     case "new": return "BOOKING SENT";
     case "accepted": return "CONFIRMED";
@@ -117,10 +199,10 @@ export function serviceStatusPill(status: OrderStatus): string {
 }
 
 /** Tracking headline — product purana, service naya vocabulary. */
-export function trackingHeadline(o: { kind?: string | null; status: OrderStatus; slotLabel?: string | null; rider?: string | null }): string | null {
+export function trackingHeadline(o: { kind?: string | null; status: OrderStatus; slotLabel?: string | null; rider?: string | null }, lang: Lang2 = "en"): string | null {
   if (o.kind !== "service") return null;
-  if (o.status === "onway" && o.rider) return `${o.rider.split(" ")[0]} is on the way`;
-  return serviceStatusText(o);
+  if (o.status === "onway" && o.rider) return lang === "hi" ? `${o.rider.split(" ")[0]} रास्ते में है` : `${o.rider.split(" ")[0]} is on the way`;
+  return serviceStatusText(o, lang);
 }
 
 export function storeRules(storeId: string, seller: SellerSettings, storewideOff: number) {

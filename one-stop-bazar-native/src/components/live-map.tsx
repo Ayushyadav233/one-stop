@@ -1,14 +1,15 @@
 /**
  * Live order map — RN port of web src/components/live-map.tsx.
  * Deltas:
- * - Leaflet/Google-embed → react-native-maps MapView + Marker + Polyline (same visuals:
- *   store pin, home pin, rider badge, muted full route + solid travelled route).
+ * - Leaflet/Google-embed → Mapbox SDK (rnmapbox) rendering OSM raster tiles
+ *   (same visuals: store pin, home pin, rider badge, muted full route +
+ *   solid travelled route).
  * - Rider position: uses riderPos GPS fix when present, else lerps store→home by progress
  *   (identical math to web LeafletMap effect).
  * - interactive=false → gestures disabled (same as web).
  */
 import { Text, View } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import { OsmLatLng, OsmLine, OsmMap, OsmPin } from "./map-osm";
 
 export interface LatLng {
   lat: number;
@@ -37,40 +38,22 @@ export function LiveMap({
 }: LiveMapProps) {
   // rider position: GPS fix wins, otherwise lerp store → home (web parity)
   const t = Math.max(0, Math.min(1, progress));
-  const rider = riderPos
-    ? { latitude: riderPos.lat, longitude: riderPos.lng }
+  const rider: OsmLatLng = riderPos
+    ? { lat: riderPos.lat, lng: riderPos.lng }
     : {
-        latitude: store.lat + (home.lat - store.lat) * t,
-        longitude: store.lng + (home.lng - store.lng) * t,
+        lat: store.lat + (home.lat - store.lat) * t,
+        lng: store.lng + (home.lng - store.lng) * t,
       };
-
-  const storeC = { latitude: store.lat, longitude: store.lng };
-  const homeC = { latitude: home.lat, longitude: home.lng };
-
-  const midLat = (store.lat + home.lat) / 2;
-  const midLng = (store.lng + home.lng) / 2;
 
   return (
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-      <MapView
-        style={{ flex: 1 }}
-        scrollEnabled={interactive}
-        zoomEnabled={interactive}
-        pitchEnabled={false}
-        rotateEnabled={interactive}
-        initialRegion={{
-          latitude: midLat,
-          longitude: midLng,
-          latitudeDelta: Math.max(Math.abs(store.lat - home.lat) * 1.9, 0.012),
-          longitudeDelta: Math.max(Math.abs(store.lng - home.lng) * 1.9, 0.012),
-        }}
-      >
+      <OsmMap style={{ flex: 1 }} fit={[store, home]} interactive={interactive}>
         {/* full route (muted, dashed) */}
-        <Polyline coordinates={[storeC, homeC]} strokeColor="#8A8A99" strokeWidth={4} lineDashPattern={[8, 10]} />
+        <OsmLine id="live-full" coords={[store, home]} color="#8A8A99" width={4} dash={[2, 2.5]} />
         {/* travelled route (solid) */}
-        <Polyline coordinates={[storeC, rider]} strokeColor={routeColor} strokeWidth={5} />
+        <OsmLine id="live-travelled" coords={[store, rider]} color={routeColor} width={5} />
 
-        <Marker coordinate={storeC} title="Store">
+        <OsmPin point={store}>
           <View
             style={{
               height: 38,
@@ -85,9 +68,9 @@ export function LiveMap({
           >
             <Text style={{ fontSize: 18, lineHeight: 20 }}>🏪</Text>
           </View>
-        </Marker>
+        </OsmPin>
 
-        <Marker coordinate={homeC} title="Home">
+        <OsmPin point={home}>
           <View
             style={{
               height: 38,
@@ -102,10 +85,10 @@ export function LiveMap({
           >
             <Text style={{ fontSize: 18, lineHeight: 20 }}>🏠</Text>
           </View>
-        </Marker>
+        </OsmPin>
 
         {showRider && (
-          <Marker coordinate={rider} title="Rider">
+          <OsmPin point={rider}>
             <View
               style={{
                 height: 36,
@@ -120,9 +103,9 @@ export function LiveMap({
             >
               <Text style={{ fontSize: 18, lineHeight: 20 }}>🛵</Text>
             </View>
-          </Marker>
+          </OsmPin>
         )}
-      </MapView>
+      </OsmMap>
     </View>
   );
 }

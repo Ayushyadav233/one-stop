@@ -5,7 +5,7 @@ import { Vibration } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATEGORIES, PRODUCTS, STORES, type CategoryDef, type Kind, type Product, type Store } from "@/lib/data";
-import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock } from "@/lib/api";
+import { apiPatchOrder, apiGetHome, HOME_CONFIG_DEFAULTS, type ApiHomeBlock, type ApiSellerStore } from "@/lib/api";
 import { fetchRemoteCatalog } from "@/lib/catalog";
 
 /* Canonical keys — LOCAL copy (catalog.ts se import nahi).
@@ -99,19 +99,21 @@ export interface RiderCtx {
 export interface CategoryRequest { id: string; productName: string; category: string; parent?: string; description: string; emoji: string; storeName: string; status: "pending" | "approved" | "rejected"; createdAt: number; }
 
 export interface SellerSettings {
-  onboarded: boolean;
-  storeOpen: boolean;
-  storeId: string;
-  coverImage: string;
-  name: string; tagline: string; phone: string; address: string; description: string; announcement: string;
-  categories: string[];
-  deliveryOn: boolean; radiusKm: number; deliveryFee: number; freeAbove: number; minOrder: number; pickup: boolean; avgTime: number;
-  openTime: string; closeTime: string; closedDays: string[]; vacationUntil: string;
-  // Service bookings (auto-slot engine): kaun se din kaam, kitne din advance tak book.
-  workDays: number[]; advanceDays: number;
-  riders: Rider[];
-  plan: "basic" | "growth" | "scale";
-}
+   onboarded: boolean;
+   storeOpen: boolean;
+   storeId: string;
+   coverImage: string;
+   name: string; tagline: string; phone: string; address: string; description: string; announcement: string;
+   categories: string[];
+   deliveryOn: boolean; radiusKm: number; deliveryFee: number; freeAbove: number; minOrder: number; pickup: boolean; avgTime: number;
+   openTime: string; closeTime: string; closedDays: string[]; vacationUntil: string;
+   // Service bookings (auto-slot engine): kaun se din kaam, kitne din advance tak book.
+   workDays: number[]; advanceDays: number;
+   riders: Rider[];
+   plan: "basic" | "growth" | "scale";
+   storeLat?: number;
+   storeLng?: number;
+ }
 export interface SellerCoupon { id: string; code: string; title: string; detail: string; kind: "pct" | "flat"; value: number; maxOff: number; minOrder: number; active: boolean; used: number; expiry: string; firstOrderOnly?: boolean; }
 /** Chat message (server ApiChatMsg + local pending flag). */
 export interface ChatMsg { id: string; sender: string; text: string; createdAt: string; pending?: boolean; }
@@ -164,8 +166,9 @@ interface OSBState {
    dark: boolean;
    role: string;
   cart: CartLine[];
-  wishlist: string[];
-  orders: Order[];
+   wishlist: string[];
+   trackingOrderId: string | null;
+   orders: Order[];
   coupon: string | null;
   // Server-validated coupon proof (fail-closed: proof nahi = discount nahi).
   // 5 min fresh — validate sirf Apply/checkout pe hota hai, quota order pe jalta hai.
@@ -217,6 +220,10 @@ interface OSBState {
   seller: SellerSettings;
   sellerCoupons: SellerCoupon[];
   sellerOrders: SellerOrder[];
+  // Server record link (osb_seller_stores row id) + pending-upload flag.
+  // Reinstall/phone-change pe dukaan server se wapas aati hai.
+  sellerServerId: string | null;
+  sellerDirty: boolean;
   team: TeamMember[];
   storeReviews: StoreReview[];
   storewideOff: number;
@@ -242,6 +249,8 @@ interface OSBState {
   toggleProduct: (id: string) => void;
   bumpStock: (id: string, d: number) => void;
   setSeller: (p: Partial<SellerSettings>) => void;
+  uploadSellerStore: () => void;
+  syncSellerFromServer: () => void;
   addCoupon: (c: SellerCoupon) => void;
   updateCoupon: (id: string, c: Partial<SellerCoupon>) => void;
   removeCoupon: (id: string) => void;
@@ -257,8 +266,10 @@ interface OSBState {
   riderPickup: (id: string) => void;
   completeDelivery: (id: string, otp: string, photo?: string) => boolean;
   customerConfirmDelivery: (id: string) => void;
-  updateRiderLocation: (orderId: string, lat: number, lng: number) => void;
-  toggleRiderOnline: (online: boolean) => void;
+   updateRiderLocation: (orderId: string, lat: number, lng: number) => void;
+   startTracking: (orderId: string) => void;
+   stopTracking: () => void;
+   toggleRiderOnline: (online: boolean) => void;
   enterCustomerMode: () => void;
   backToDeliveries: () => void;
   addTeam: (m: TeamMember) => void;
@@ -280,6 +291,73 @@ interface OSBState {
    setRole: (r: string) => void;
 }
 
+/* ── Seller store ↔ server sync ──
+   Dukaan pehle sirf AsyncStorage me thi → reinstall pe gayab. Ab server
+   (osb_seller_stores, ownerId-keyed) source-of-truth hai; local fail-soft.
+   Rules: local khali + server hai → adopt (restore). Local hai + server
+   khali → upload (backfill). Dono hain → local edits server pe PATCH. */
+type ServerStoreRow = ApiSellerStore;
+let sellerPushTimer: ReturnType<typeof setTimeout> | null = null;
+let sellerPushInFlight = false;
+let sellerSyncInFlight = false;
+
+function scheduleSellerPush() {
+  if (sellerPushTimer) clearTimeout(sellerPushTimer);
+  sellerPushTimer = setTimeout(() => {
+    sellerPushTimer = null;
+    try { useOSB.getState().uploadSellerStore(); } catch { /* noop */ }
+  }, 2500);
+}
+function sellerStoreBody(s: SellerSettings) {
+  return {
+    name: s.name.trim() || "My Store",
+    slug: s.storeId && s.storeId !== "mine" ? s.storeId : undefined,
+    kind: s.categories[0] || "grocery",
+    tagline: s.tagline || undefined,
+    image: s.coverImage || undefined,
+    address: s.address || undefined,
+    isOpen: s.storeOpen,
+    profile: { ...s } as unknown as Record<string, unknown>,
+  };
+}
+const sstr = (v: unknown, fb = ""): string => (typeof v === "string" ? v : fb);
+const snum = (v: unknown, fb: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fb);
+const sbool = (v: unknown, fb: boolean): boolean => (typeof v === "boolean" ? v : fb);
+const sarr = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+function sellerFromServer(row: ServerStoreRow, digits: string, formatted: string): SellerSettings {
+  const p = (row.profile ?? {}) as Partial<SellerSettings>;
+  return {
+    onboarded: true,
+    storeOpen: row.isOpen ?? sbool(p.storeOpen, true),
+    storeId: sstr(p.storeId) || row.slug || "mine-" + digits,
+    coverImage: row.image ?? sstr(p.coverImage),
+    name: row.name || sstr(p.name) || "My Store",
+    tagline: row.tagline ?? sstr(p.tagline),
+    phone: sstr(p.phone) || formatted,
+    address: row.address ?? sstr(p.address),
+    description: sstr(p.description),
+    announcement: sstr(p.announcement),
+    categories: sarr(p.categories),
+    deliveryOn: sbool(p.deliveryOn, true),
+    radiusKm: snum(p.radiusKm, 5),
+    deliveryFee: snum(p.deliveryFee, 29),
+    freeAbove: snum(p.freeAbove, 199),
+    minOrder: snum(p.minOrder, 99),
+    pickup: sbool(p.pickup, true),
+    avgTime: snum(p.avgTime, 30),
+    openTime: sstr(p.openTime, "10:00"),
+    closeTime: sstr(p.closeTime, "21:00"),
+    closedDays: sarr(p.closedDays),
+    vacationUntil: sstr(p.vacationUntil),
+    workDays: Array.isArray(p.workDays) && p.workDays.length ? p.workDays.map(Number) : [0, 1, 2, 3, 4, 5, 6],
+    advanceDays: snum(p.advanceDays, 7),
+    riders: Array.isArray(p.riders) ? (p.riders as SellerSettings["riders"]) : [],
+    plan: p.plan === "basic" || p.plan === "scale" ? p.plan : "growth",
+    storeLat: typeof p.storeLat === "number" ? p.storeLat : undefined,
+    storeLng: typeof p.storeLng === "number" ? p.storeLng : undefined,
+  };
+}
+
 export const useOSB = create<OSBState>()(
   persist(
     (set, get) => ({
@@ -298,8 +376,9 @@ export const useOSB = create<OSBState>()(
        role: "customer",
       cart: [],
       wishlist: ["p10", "p19"],
-      orders: [],
-      coupon: null,
+       orders: [],
+       trackingOrderId: null,
+       coupon: null,
       couponProof: null,
       setCouponProof: (p) => set({ couponProof: p }),
       chatOrderId: null,
@@ -377,6 +456,8 @@ export const useOSB = create<OSBState>()(
       },
       sellerCoupons: [],
       sellerOrders: [],
+      sellerServerId: null,
+      sellerDirty: false,
       team: [],
       storeReviews: [],
       storewideOff: 0,
@@ -467,6 +548,8 @@ export const useOSB = create<OSBState>()(
       },
       login: (phone) => {
         const digits = phone.replace(/\D/g, "").slice(-10);
+        // Dusre number pe login → purane shop ka server link invalid; sync dobara resolve karega.
+        set({ sellerServerId: null });
         const st = get();
         const prev = st.phone.replace(/\D/g, "").slice(-10);
         let accounts = st.accounts;
@@ -673,29 +756,115 @@ export const useOSB = create<OSBState>()(
       removeProduct: (id) => { set((st) => ({ catalog: st.catalog.filter((x) => x.id !== id) })); get().saveAccount(); },
       toggleProduct: (id) => { set((st) => ({ catalog: st.catalog.map((x) => (x.id === id ? { ...x, hidden: !x.hidden } : x)) })); get().saveAccount(); },
       bumpStock: (id, d) => { set((st) => ({ catalog: st.catalog.map((x) => (x.id === id ? { ...x, stock: Math.max(0, x.stock + d) } : x)) })); get().saveAccount(); },
-      setSeller: (p) => { set((st) => ({ seller: { ...st.seller, ...p } })); get().saveAccount(); },
+      setSeller: (p) => { set((st) => ({ seller: { ...st.seller, ...p } })); get().saveAccount(); scheduleSellerPush(); },
+      uploadSellerStore: () => {
+        const st = get();
+        if (!st.loggedIn || !st.seller.onboarded || !st.seller.name.trim()) return;
+        set({ sellerDirty: true });
+        if (sellerPushInFlight) return;
+        sellerPushInFlight = true;
+        const snapshot = get().seller;
+        const snapshotJson = JSON.stringify(snapshot);
+        const serverId = get().sellerServerId;
+        import("@/lib/api").then(async (m) => {
+          try {
+            if (!m.getApiToken()) return;
+            const body = sellerStoreBody(snapshot);
+            const res = serverId
+              ? await m.apiSellerPatchStore(serverId, body)
+              : await m.apiSellerPostStore({ ...body, slug: body.slug ?? snapshot.storeId });
+            const changed = JSON.stringify(get().seller) !== snapshotJson;
+            if (res?.ok && res.store) {
+              set({ sellerServerId: res.store.id ?? serverId ?? null, sellerDirty: changed });
+              if (changed) scheduleSellerPush();
+            } else {
+              set({ sellerDirty: true });
+            }
+          } catch {
+            set({ sellerDirty: true });
+          } finally {
+            sellerPushInFlight = false;
+          }
+        }).catch(() => { sellerPushInFlight = false; });
+      },
+      syncSellerFromServer: () => {
+        if (!get().loggedIn || sellerSyncInFlight) return;
+        if (!useOSB.persist.hasHydrated()) {
+          setTimeout(() => { try { get().syncSellerFromServer(); } catch { /* noop */ } }, 2000);
+          return;
+        }
+        sellerSyncInFlight = true;
+        import("@/lib/api").then(async (m) => {
+          try {
+            if (!m.getApiToken()) return;
+            const rows = await m.apiSellerGetStores();
+            if (!rows) return; // offline — local snapshot wins
+            const cur = get();
+            const digits = cur.phone.replace(/\D/g, "").slice(-10);
+            const match = rows.find((r) => !!r.slug && r.slug === cur.seller.storeId)
+              ?? (!cur.seller.onboarded ? rows[0] : undefined);
+            if (!match) {
+              // Server khali, local me dukaan → backfill (purani local shops bhi upload).
+              if (cur.seller.onboarded) get().uploadSellerStore();
+              return;
+            }
+            if (!cur.seller.onboarded) {
+              // Fresh install / naya device → server wali dukaan wapas.
+              const restored = sellerFromServer(match, digits, cur.phone);
+              const snap = {
+                userName: cur.userName, address: cur.address,
+                seller: restored, catalog: cur.catalog, catalogInit: cur.catalogInit,
+                sellerCoupons: cur.sellerCoupons, sellerOrders: cur.sellerOrders,
+                team: cur.team, storeReviews: cur.storeReviews, storewideOff: cur.storewideOff,
+                orders: cur.orders, wishlist: cur.wishlist,
+              };
+              set({
+                seller: restored,
+                sellerServerId: match.id ?? null,
+                sellerDirty: false,
+                accounts: digits ? { ...cur.accounts, [digits]: snap } : cur.accounts,
+              });
+              return;
+            }
+            // Dono taraf dukaan → local edits server pe converge (PATCH, duplicate POST nahi).
+            if (!cur.sellerServerId && match.id) set({ sellerServerId: match.id });
+            get().uploadSellerStore();
+          } finally {
+            sellerSyncInFlight = false;
+          }
+        }).catch(() => { sellerSyncInFlight = false; });
+      },
       addCoupon: (c) => set((st) => ({ sellerCoupons: [c, ...st.sellerCoupons] })),
       updateCoupon: (id, c) => set((st) => ({ sellerCoupons: st.sellerCoupons.map((x) => (x.id === id ? { ...x, ...c } : x)) })),
       removeCoupon: (id) => set((st) => ({ sellerCoupons: st.sellerCoupons.filter((x) => x.id !== id) })),
-      updateOrderStatus: (id, s) => {
-        const prev = get().orders.find((x) => x.id === id);
-        set((st) => {
-          let catalog = st.catalog;
-          if (s === "cancelled" && prev && prev.status !== "cancelled") {
-            catalog = st.catalog.map((p) => {
-              const line = prev.items.find((i) => i.productId === p.id);
-              if (!line) return p;
-              return { ...p, stock: p.stock + line.qty };
-            });
-          }
-          return {
-            sellerOrders: st.sellerOrders.map((x) => (x.id === id ? { ...x, status: s } : x)),
-            orders: st.orders.map((x) => (x.id === id ? { ...x, status: s } : x)),
-            catalog,
-          };
-        });
-        apiPatchOrder(id, { status: s }).catch(() => {});
-      },
+       updateOrderStatus: (id, s) => {
+         const prev = get().orders.find((x) => x.id === id);
+         set((st) => {
+           let catalog = st.catalog;
+           if (s === "cancelled" && prev && prev.status !== "cancelled") {
+             catalog = st.catalog.map((p) => {
+               const line = prev.items.find((i) => i.productId === p.id);
+               if (!line) return p;
+               return { ...p, stock: p.stock + line.qty };
+             });
+           }
+           const orders = st.orders.map((x) => (x.id === id ? { ...x, status: s } : x));
+           const riderLoc = s === "delivered" || s === "cancelled"
+             ? { riderLat: undefined, riderLng: undefined, riderLastSeen: undefined }
+             : {};
+           const tracking = (s === "delivered" || s === "cancelled") && st.trackingOrderId === id
+             ? { trackingOrderId: null }
+             : {};
+           return {
+             sellerOrders: st.sellerOrders.map((x) => (x.id === id ? { ...x, status: s } : x)),
+             orders,
+             catalog,
+             ...riderLoc,
+             ...tracking,
+           };
+         });
+         apiPatchOrder(id, { status: s }).catch(() => {});
+       },
       assignRider: (id, rider) => {
         set((st) => ({
           sellerOrders: st.sellerOrders.map((x) => (x.id === id ? { ...x, rider } : x)),
@@ -759,13 +928,15 @@ export const useOSB = create<OSBState>()(
         apiPatchOrder(id, { status: "delivered", deliveredBy: "customer" }).catch(() => {});
         get().buzz(16);
       },
-      updateRiderLocation: (orderId, lat, lng) => {
-        set((st) => ({
-          orders: st.orders.map((o) => (o.id === orderId ? { ...o, riderLat: lat, riderLng: lng, riderLastSeen: Date.now() } : o)),
-        }));
-        apiPatchOrder(orderId, { riderLat: lat, riderLng: lng }).catch(() => {});
-      },
-      toggleRiderOnline: (online) => {
+       updateRiderLocation: (orderId, lat, lng) => {
+         set((st) => ({
+           orders: st.orders.map((o) => (o.id === orderId ? { ...o, riderLat: lat, riderLng: lng, riderLastSeen: Date.now() } : o)),
+         }));
+         apiPatchOrder(orderId, { riderLat: lat, riderLng: lng }).catch(() => {});
+       },
+       startTracking: (orderId) => set({ trackingOrderId: orderId }),
+       stopTracking: () => set({ trackingOrderId: null }),
+       toggleRiderOnline: (online) => {
         const ctx = get().riderCtx;
         if (!ctx) return;
         const key = ctx.riderPhone.replace(/\D/g, "").slice(-10);
@@ -879,7 +1050,7 @@ export const useOSB = create<OSBState>()(
         } catch { /* noop */ }
       },
     }),
-     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist, orders: s.orders, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx, walletPoints: s.walletPoints, myReferralCode: s.myReferralCode, walletTx: s.walletTx, useWallet: s.useWallet } as unknown as OSBState) }
+     { name: "osb-v8", storage: createJSONStorage(() => AsyncStorage), partialize: (s) => ({ onboarded: s.onboarded, loggedIn: s.loggedIn, phone: s.phone, userName: s.userName, userEmail: s.userEmail, userGender: s.userGender, userAvatar: s.userAvatar, profileComplete: s.profileComplete, dark: s.dark, role: s.role, wishlist: s.wishlist,    orders: s.orders, trackingOrderId: s.trackingOrderId, mode: s.mode, coupon: s.coupon, language: s.language, notifEnabled: s.notifEnabled, address: s.address, addressArea: s.addressArea, locationSet: s.locationSet, userLat: s.userLat, userLng: s.userLng, extraCategories: s.extraCategories, hiddenCategories: s.hiddenCategories, catRequests: s.catRequests, catalogInit: s.catalogInit, catalog: s.catalog, remoteStores: s.remoteStores, remoteProducts: s.remoteProducts, catalogSyncAt: s.catalogSyncAt, homeBlocks: s.homeBlocks, homeBlocksAt: s.homeBlocksAt, homeConfig: s.homeConfig, homeVersion: s.homeVersion, seller: s.seller, sellerServerId: s.sellerServerId, sellerDirty: s.sellerDirty, sellerCoupons: s.sellerCoupons, sellerOrders: s.sellerOrders, team: s.team, storeReviews: s.storeReviews, storewideOff: s.storewideOff, accounts: s.accounts, riderCtx: s.riderCtx, walletPoints: s.walletPoints, myReferralCode: s.myReferralCode, walletTx: s.walletTx, useWallet: s.useWallet } as unknown as OSBState) }
   )
 );
 

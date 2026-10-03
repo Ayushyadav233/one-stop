@@ -31,6 +31,7 @@ sellerRoute.post("/store", auth, async (c) => {
       image: typeof b.image === "string" ? b.image : null,
       address: typeof b.address === "string" ? String(b.address).slice(0, 320) : null,
       isOpen: typeof b.isOpen === "boolean" ? b.isOpen : true,
+      profile: b.profile && typeof b.profile === "object" ? b.profile as Record<string, unknown> : null,
     })
     .returning();
   return c.json({ ok: true, store: rows[0] });
@@ -43,6 +44,7 @@ sellerRoute.patch("/store/:id", auth, async (c) => {
   const patch: Record<string, unknown> = {};
   for (const k of ["name", "tagline", "image", "address", "kind"]) if (typeof b[k] === "string") patch[k] = String(b[k]).slice(0, 320);
   if (typeof b.isOpen === "boolean") patch.isOpen = b.isOpen;
+  if (b.profile && typeof b.profile === "object") patch.profile = b.profile as Record<string, unknown>;
   if (Object.keys(patch).length === 0) return c.json({ ok: false, error: "empty" }, 400);
   const rows = await db.update(sellerStores).set(patch).where(and(eq(sellerStores.id, id), eq(sellerStores.ownerId, u.id))).returning();
   if (!rows[0]) return c.json({ ok: false, error: "not found" }, 404);

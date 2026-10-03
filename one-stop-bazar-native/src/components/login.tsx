@@ -20,6 +20,7 @@ import * as SecureStore from "expo-secure-store";
 import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
 import { ArrowLeft, Check, ChevronRight, ShieldCheck } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
+import { useTx, type StrKey } from "@/lib/i18n";
 import { FIREBASE_AUTH_ENABLED, apiFirebaseLogin, apiGetMe, apiHealth, apiRequestOtp, apiVerifyOtp, setApiToken, apiAdminMe } from "@/lib/api";
 import { registerForPush } from "@/lib/push";
 import { getAuth, signInWithPhoneNumber, type ConfirmationResult } from "@react-native-firebase/auth";
@@ -29,23 +30,25 @@ import { F, Img } from "./ui";
 const HERO =
   "https://images.pexels.com/photos/9609862/pexels-photo-9609862.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
 
-/** Firebase ka asli error code → insanon wali Hindi line. */
-function firebaseErrMsg(e: unknown): string {
+/** Firebase ka asli error code → insanon wali line (language setting ke hisaab se). */
+function firebaseErrMsg(e: unknown, tr: (k: StrKey, vars?: Record<string, string | number>) => string): string {
   const code = String((e as { code?: unknown })?.code ?? "");
   const msg = String((e as Error)?.message ?? "");
   if (code.includes("missing-client-identifier") || msg.includes("missing-client-identifier"))
-    return "Firebase setup adhura hai (SHA-1 / Play Integrity missing). Firebase console me app ka SHA-1 (EAS keystore wala) + Play Integrity API on karo, naya google-services.json se rebuild karo. Tab tak test ke liye backend OTP use karo.";
-  if (code.includes("invalid-verification-code")) return "Galat code hai. SMS/test-code dobara check karo.";
-  if (code.includes("code-expired") || code.includes("session-expired")) return "Code expire ho gaya — Resend OTP dabao.";
-  if (code.includes("too-many-requests")) return "Bahut try ho gaye — 5 min ruk ke retry karo.";
-  if (code.includes("network")) return "Network issue — internet check karke retry karo.";
+    return tr("lgFbSetup");
+  if (code.includes("invalid-verification-code")) return tr("lgWrongCode");
+  if (code.includes("code-expired") || code.includes("session-expired")) return tr("lgExpired");
+  if (code.includes("too-many-requests")) return tr("lgTooMany");
+  if (code.includes("network")) return tr("lgNetwork");
   const m = msg.slice(0, 120);
-  return m ? `Firebase error: ${m}` : "OTP verify nahi hua. Retry karo.";
+  return m ? `Firebase error: ${m}` : tr("lgVerifyFail");
 }
 
 export function LoginScreen() {
   const login = useOSB((s) => s.login);
   const accounts = useOSB((s) => s.accounts);
+  const tr = useTx();
+  const ferr = (e: unknown) => firebaseErrMsg(e, tr);
   const { colors } = useTheme();
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [digits, setDigits] = useState("");
@@ -73,7 +76,7 @@ export function LoginScreen() {
 
   const sendOtp = () => {
     if (!valid) {
-      setErr("Enter a valid 10-digit mobile number");
+      setErr(tr("lgBadNumber"));
       return;
     }
     setErr("");
@@ -86,7 +89,7 @@ export function LoginScreen() {
           setFbConfirm(confirmation);
           setDevOtp(null);
         })
-        .catch((e) => setErr(firebaseErrMsg(e)));
+        .catch((e) => setErr(ferr(e)));
     } else {
       // Backend OTP request (fail-soft: offline ho to demo flow vaise hi chalega).
       apiRequestOtp(digits).then((j) => {
@@ -146,6 +149,9 @@ export function LoginScreen() {
         }
       }
     } catch { /* offline — local snapshot wins */ }
+    // Server wali dukaan wapas lao (reinstall/naya device) ya local wali upload karo.
+    // Fail-soft: offline ho to kuch nahi hota, local snapshot hi rahega.
+    try { useOSB.getState().syncSellerFromServer(); } catch { /* noop */ }
     // Wallet sync (real-time balance + referral code).
     try {
       const { apiGetWallet } = await import("@/lib/api");
@@ -168,7 +174,7 @@ export function LoginScreen() {
     if (v.length < 6) return;
     if (v === "000000") {
       // Backend bhi 000000 ko hamesha reject karta hai (auth.ts) — ye demo/test code nahi hai.
-      setErr("Ye code invalid hai. SMS/test-code wala 6-digit code dalo.");
+      setErr(tr("lgInvalidCode"));
       blip(320);
       return;
     }
@@ -177,7 +183,7 @@ export function LoginScreen() {
       // Firebase path: SMS/test code confirm → ID token → backend app token.
       // FAIL-CLOSED: fbConfirm nahi hai (send fail hua) to verify mat hone do.
       if (!fbConfirm) {
-        setErr("OTP bheja hi nahi gaya (upar Firebase error dekho). Number badlo ya Resend dabao.");
+        setErr(tr("lgNotSent"));
         blip(320);
         return;
       }
@@ -193,15 +199,15 @@ export function LoginScreen() {
         // 99% matlab server pe FIREBASE_PROJECT_ID missing (503) ya API_BASE galat.
         const h = await apiHealth();
         if (!h) {
-          setErr("Server se connect nahi ho raha. APK me API URL Render wala hona chahiye (10.0.2.2 sirf emulator pe chalta hai).");
+          setErr(tr("lgNoServer"));
           blip(320);
           return;
         }
-        setErr("Server pe Firebase setup adhura hai (key missing). Backend team se bolo.");
+        setErr(tr("lgFbServer"));
         blip(320);
         return;
       } catch (e) {
-        setErr(firebaseErrMsg(e));
+        setErr(ferr(e));
         blip(320);
         return;
       }
@@ -214,11 +220,11 @@ export function LoginScreen() {
       return;
     }
     if (!res) {
-      setErr("Server se connect nahi ho raha. Internet + API URL check karo.");
+      setErr(tr("lgNoServer2"));
       blip(320);
       return;
     }
-    setErr(devOtp ? `Wrong OTP. Dev code: ${devOtp}` : "Wrong OTP. Try again.");
+    setErr(devOtp ? tr("lgWrongDev", { otp: devOtp }) : tr("lgWrongAgain"));
     blip(320);
     return;
   };
@@ -246,7 +252,7 @@ export function LoginScreen() {
             ONE STOP BAZAR
           </Text>
           <Text style={{ marginTop: 4, fontFamily: F.display, fontSize: 28, lineHeight: 30, color: "#fff" }}>
-            Everything{"\n"}around you.
+            {tr("lgHeroSub")}
           </Text>
         </View>
       </View>
@@ -266,16 +272,16 @@ export function LoginScreen() {
         {step === "phone" ? (
           <Animated.View entering={SlideInRight.springify().stiffness(220).damping(26)} style={{ flex: 1 }}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-              <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: colors.ink3 }}>LOGIN OR SIGN UP</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 2, color: colors.ink3 }}>{tr("lgKicker")}</Text>
               <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, letterSpacing: -0.4, color: colors.ink }}>
-                What’s your number?
+                {tr("lgTitle")}
               </Text>
               <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 13, color: colors.ink2 }}>
-                We’ll send a one-time password. No password to remember.
+                {tr("lgSub")}
               </Text>
 
               <Text style={{ marginTop: 20, fontFamily: F.extra, fontSize: 10, letterSpacing: 1.6, color: colors.ink3 }}>
-                MOBILE NUMBER
+                {tr("lgMobileLabel")}
               </Text>
               <View
                 style={{
@@ -313,7 +319,7 @@ export function LoginScreen() {
               {err ? <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 12, color: "#E23744" }}>{err}</Text> : null}
               {savedShop ? (
                 <Text style={{ marginTop: 8, borderRadius: 12, backgroundColor: "rgba(12,131,31,.1)", paddingHorizontal: 12, paddingVertical: 8, fontFamily: F.bold, fontSize: 12, color: "#0C831F" }}>
-                  Welcome back — {savedShop} opens after OTP. No re-register.
+                  {tr("refWelcomeBack", { shop: savedShop })}
                 </Text>
               ) : null}
 
@@ -324,11 +330,11 @@ export function LoginScreen() {
                   onPress={sendOtp}
                   style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#E23744", paddingVertical: 16, opacity: !valid || sending ? 0.4 : 1 }}
                 >
-                  <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{sending ? "Sending OTP…" : "Get OTP"}</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{sending ? tr("lgSending") : tr("lgGetOtp")}</Text>
                   {!sending && <ChevronRight size={18} color="#fff" />}
                 </Pressable>
                 <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 11, lineHeight: 15, color: colors.ink3, textAlign: "center" }}>
-                  By continuing you agree to our Terms & Privacy. OTP login only — no email, no password.
+                  {tr("lgConsent")}
                 </Text>
               </View>
             </ScrollView>
@@ -344,10 +350,10 @@ export function LoginScreen() {
                 style={{ marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start" }}
               >
                 <ArrowLeft size={14} color={colors.ink2} />
-                <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink2 }}>Change number</Text>
+                <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink2 }}>{tr("lgChangeNum")}</Text>
               </Pressable>
-              <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.4, color: colors.ink }}>Enter OTP</Text>
-              <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 13, color: colors.ink2 }}>Sent to +91 {pretty}</Text>
+              <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.4, color: colors.ink }}>{tr("lgEnterOtp")}</Text>
+              <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 13, color: colors.ink2 }}>{tr("lgSentTo", { n: pretty })}</Text>
 
               <View style={{ marginTop: 24, flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                 {otp.map((d, i) => (
@@ -381,19 +387,19 @@ export function LoginScreen() {
               {err ? <Text style={{ marginTop: 8, fontFamily: F.bold, fontSize: 12, color: "#E23744" }}>{err}</Text> : null}
               <Text style={{ marginTop: 12, fontFamily: F.semi, fontSize: 12, color: colors.ink3 }}>
                 {sec > 0 ? (
-                  `Resend in 00:${String(sec).padStart(2, "0")}`
+                  tr("lgResendIn", { s: String(sec).padStart(2, "0") })
                 ) : (
                   <Text onPress={sendOtp} style={{ fontFamily: F.extra, fontSize: 12, color: "#E23744" }}>
-                    Resend OTP
+                    {tr("lgResend")}
                   </Text>
                 )}
               </Text>
               <Text style={{ marginTop: 8, fontFamily: F.medium, fontSize: 11, color: colors.ink3 }}>
                 {devOtp
-                  ? `Backend code: ${devOtp} (ye dalo)`
+                  ? tr("lgDevHint", { otp: devOtp })
                   : FIREBASE_AUTH_ENABLED
-                    ? "SMS pe aaya 6-digit code dalo. Test number ho to Firebase console wala code."
-                    : "Demo hint: any 6-digit OTP works (not 000000)."}
+                    ? tr("lgSmsHint")
+                    : tr("lgDemoHint")}
               </Text>
 
               <View style={{ flex: 1 }} />
@@ -403,12 +409,12 @@ export function LoginScreen() {
                   onPress={() => void verify(otp)}
                   style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#E23744", paddingVertical: 16, opacity: otp.join("").length < 6 ? 0.4 : 1 }}
                 >
-                  <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>Verify & continue</Text>
+                  <Text style={{ fontFamily: F.extra, fontSize: 15, color: "#fff" }}>{tr("lgVerifyGo")}</Text>
                   <Check size={18} strokeWidth={3} color="#fff" />
                 </Pressable>
                 <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <ShieldCheck size={13} color={colors.ink3} />
-                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>Secure OTP • never shared with stores</Text>
+                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>{tr("lgTrust")}</Text>
                 </View>
               </View>
             </ScrollView>

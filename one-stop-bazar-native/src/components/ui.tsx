@@ -23,6 +23,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle, Defs, LinearGradient, Polygon, Polyline, Stop } from "react-native-svg";
 import { cn } from "@/lib/cn";
+import { useTx } from "@/lib/i18n";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeProvider";
 
@@ -227,6 +228,7 @@ export function AddStepper({
 }) {
   const spec = small ? tokens.ui.addStepper.small : tokens.ui.addStepper.regular;
   const p = usePressScale(0.88);
+  const tr = useTx();
   if (qty === 0)
     return (
       <AnimatedPressable
@@ -262,7 +264,7 @@ export function AddStepper({
             color: tokens.ui.addStepper.borderColor,
           }}
         >
-          ADD
+          {tr("uiAdd")}
         </Text>
       </AnimatedPressable>
     );
@@ -375,6 +377,7 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 export function Ring({ pct, size = 92, label }: { pct: number; size?: number; label?: string }) {
   const { colors } = useTheme();
+  const tr = useTx();
   const r = (size - 12) / 2;
   const c = 2 * Math.PI * r;
   const offset = useSharedValue(c);
@@ -410,7 +413,7 @@ export function Ring({ pct, size = 92, label }: { pct: number; size?: number; la
             color: colors.ink3,
           }}
         >
-          {label ?? "health"}
+          {label ?? tr("uiHealth")}
         </Text>
       </View>
     </View>

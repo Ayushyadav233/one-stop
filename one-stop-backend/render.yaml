@@ -1,12 +1,17 @@
 services:
-  - type: web
-    name: one-stop-backend
-    runtime: node
-    plan: free
-    buildCommand: npm install --include=dev
-    startCommand: npx tsx src/index.ts
-    healthCheckPath: /api/health
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-    # NOTE: PORT Render khud inject karta hai (code process.env.PORT use karta hai) — yaha set mat karo.
+   - type: web
+     name: one-stop-backend
+     runtime: node
+     plan: free
+     buildCommand: npm install --include=dev
+     startCommand: npx tsx src/index.ts
+     healthCheckPath: /api/health
+     envVars:
+       - key: DATABASE_URL
+         sync: false
+     # NOTE: PORT Render khud inject karta hai (code process.env.PORT use karta hai) — yaha set mat karo.
+
+   # OSRM routing engine (free demo: router.project-osrm.org)
+   # Self-host on Render paid tier or any VPS:
+   #   docker build -f Dockerfile.osrm -t osrm-backend .
+   #   docker run -p 5000:5000 -v $(pwd)/data:/data osrm-backend osrm-routed --algorithm mld /data/india.osrm
