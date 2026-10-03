@@ -108,8 +108,9 @@ export function Pill({
   );
 }
 
-/* ── Rating (Zomato-style, thresholds from ui.tsx:24) ── */
-export function Rating({ v, count, style }: { v: number; count?: string; style?: StyleProp<ViewStyle> }) {
+/* ── Rating (Zomato-style, thresholds from ui.tsx:24). Rating nahi hai to HIDE. ── */
+export function Rating({ v, count, style }: { v: number; count?: string | number; style?: StyleProp<ViewStyle> }) {
+  if (!v || v <= 0 || count === 0 || count === "0" || count === "New") return null;
   const bg = tokens.ui.ratingBg(v);
   return (
     <View

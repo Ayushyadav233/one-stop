@@ -258,6 +258,7 @@ interface OSBState {
   removeCoupon: (id: string) => void;
   updateOrderStatus: (id: string, s: SellerOrderStatus) => void;
   assignRider: (id: string, rider: string) => void;
+  rateLiveOrder: (id: string, rating: number) => void;
   hydrateOrders: (rows: LiveOrder[]) => void;
   placeLiveOrder: (o: LiveOrder) => void;
   addRider: (r: { name: string; phone: string; vehicle: string }) => void;
@@ -875,6 +876,12 @@ export const useOSB = create<OSBState>()(
           orders: st.orders.map((x) => (x.id === id ? { ...x, rider } : x)),
         }));
         apiPatchOrder(id, { rider }).catch(() => {});
+      },
+      rateLiveOrder: (id, rating) => {
+        set((st) => ({
+          orders: st.orders.map((x) => (x.id === id ? { ...x, rating } : x)),
+          sellerOrders: st.sellerOrders.map((x) => (x.id === id ? { ...x, rating } : x)),
+        }));
       },
       addRider: (r) => {
         set((st) => ({ seller: { ...st.seller, riders: [...st.seller.riders, { ...r, active: true, perms: { ...DEFAULT_RIDER_PERMS } }] } }));

@@ -61,10 +61,16 @@ import {
   Phone,
   Plus,
   Receipt,
+  Search,
+  Send,
   Settings2,
   ShieldCheck,
+  ShoppingBag,
+  ShoppingCart,
   Signal,
   Smartphone,
+  Sparkles,
+  Star,
   Store,
   User,
   Wifi,
@@ -97,7 +103,8 @@ import { F, Img, LiveDot } from "./ui";
 import { CustomerHome, OrdersTab, ProfileTab, SavedTab, SearchTab, StoreSheet } from "./customer";
 import { BookingSheet } from "./service-booking";
 import { ChatSheet } from "./order-chat";
-import { watchChatPushes } from "@/lib/push";
+import { RateOrderSheet } from "./profile-sheets";
+import { watchPushNotifications } from "@/lib/push";
 import { CategoriesTab } from "./categories";
 import { ProviderDash, ProviderMore, ProviderOrders } from "./provider";
 import { SellerCatalog, SellerMarketing, SellerOnboarding } from "./seller";
@@ -640,7 +647,9 @@ export function CouponStrip() {
     ? stgItems.filter((i) => i.state === "LOCKED")
     : MILESTONE_FALLBACK.map((f) => ({ code: f.code, title: f.title, detail: f.detail, need: f.need, have: 0, unlocked: false, state: "LOCKED" }))
   ).sort((a, b) => a.need - b.need)[0] ?? null;
-  const unlockedList = stgItems.filter((i) => i.state === "UNLOCKED" && i.unlocked);
+  const unlockedList = stgItems.length > 0
+    ? stgItems.filter((i) => i.state === "UNLOCKED" && i.unlocked)
+    : [{ code: "WELCOME20", title: "Flat ₹20 OFF", detail: "First order reward • no min order", need: 0, have: 0, unlocked: true, state: "UNLOCKED" }];
   return (
     <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
@@ -1258,7 +1267,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
 }
 
 /* ── TrackingSheet (web shell.tsx:366-599, map → react-native-maps) ── */
-  export function TrackingSheet() {
+  export function TrackingSheet({ onRate }: { onRate?: (id: string, storeId?: string, storeName?: string, isSvc?: boolean) => void }) {
     const { trackingId: tid, track } = useTracking();
     const onClose = () => track(null);
     const orders = useOSB((s) => s.orders);
@@ -1605,6 +1614,32 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
             </View>
           )}
 
+          {delivered && (
+            <View style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={() => {
+                  if (onRate) onRate(o.id, o.storeId, o.storeName, isSvc);
+                  blip(760);
+                }}
+                style={{
+                  borderRadius: 16,
+                  backgroundColor: o.rating ? "rgba(12,131,31,.12)" : "#F8CB46",
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <Star size={16} color={o.rating ? "#0C831F" : "#111114"} fill={o.rating ? "#0C831F" : "#111114"} />
+                <Text style={{ fontFamily: F.extra, fontSize: 13.5, color: o.rating ? "#0C831F" : "#111114" }}>
+                  {o.rating ? `You rated ${o.rating} ⭐ • Tap to edit` : isSvc ? "Rate Service Partner ⭐" : "Rate Order & Store ⭐"}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           <View style={{ marginTop: 12, flexDirection: "row", alignItems: "flex-start", gap: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
             <View style={{ height: 40, width: 40, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "rgba(226,55,68,.1)" }}>
               <MapPin size={18} color="#E23744" />
@@ -1733,9 +1768,28 @@ function ShellBody() {
     const t = setInterval(pull, 6000);
     return () => clearInterval(t);
   }, [hydrateOrders]);
-  // Chat pushes → unread badge (fail-soft, kabhi crash nahi).
+  const [rateTarget, setRateTarget] = useState<null | { id: string; storeId?: string; storeName?: string; isSvc?: boolean }>(null);
+
+  // Push notifications → unread badge + deep-link routing (fail-soft, kabhi crash nahi).
   useEffect(() => {
-    return watchChatPushes((orderId) => useOSB.getState().pushChatUnread(orderId));
+    return watchPushNotifications({
+      onChat: (orderId) => {
+        useOSB.getState().pushChatUnread(orderId);
+        const mode = useOSB.getState().mode;
+        useOSB.getState().openChat(orderId, mode === "provider" ? "store" : "customer");
+      },
+      onProviderOrder: () => {
+        useOSB.setState({ mode: "provider", tab: "dash" });
+      },
+      onCustomerOrder: (orderId) => {
+        useOSB.getState().startTracking(orderId);
+      },
+      onRateOrder: (orderId: string) => {
+        const st = useOSB.getState();
+        const o = st.orders.find((x) => x.id === orderId) || st.sellerOrders.find((x) => x.id === orderId);
+        setRateTarget({ id: orderId, storeId: o?.storeId, storeName: (o as { storeName?: string })?.storeName, isSvc: o?.kind === "service" });
+      },
+    });
   }, []);
 
   // Android hardware back: overlay → tab → double-press exit (kabhi seedha exit nahi).
@@ -1809,7 +1863,16 @@ function ShellBody() {
          {authed && mode === "admin" && tab === "profile" && <ProfileTab />}
       </View>
       {authed && <BottomNav />}
-      <TrackingSheet />
+      <TrackingSheet onRate={(id, storeId, storeName, isSvc) => setRateTarget({ id, storeId, storeName, isSvc })} />
+      {rateTarget && (
+        <RateOrderSheet
+          orderId={rateTarget.id}
+          storeId={rateTarget.storeId}
+          storeName={rateTarget.storeName}
+          isService={rateTarget.isSvc}
+          onClose={() => setRateTarget(null)}
+        />
+      )}
       {storeId ? <StoreSheet id={storeId} onClose={() => set({ storeId: null })} /> : null}
       <BookingSheet />
       <ChatSheet />

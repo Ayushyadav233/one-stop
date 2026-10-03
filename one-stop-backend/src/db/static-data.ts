@@ -241,31 +241,29 @@ export const CATS = [
 /**
  * Platform coupons — STRICT stage-gating: jitne successful (delivered) orders,
  * utne bade offers. minOrders = stage requirement (server + app dono enforce).
- * Stage table (single source — app reward table yahi se banti hai):
- *   0 (welcome, first order) → BAZAR50
- *   1+ → FRESH20, HOMESERVE
- *   3+ → LOYAL3, FREEDEL
- *   5+ → LOYAL5, BIGSHOP5
- *   10+ → CHAMP10 (phir har cycle repeat 🔁)
+ * Stage table (user requirements):
+ *   0 (First order) → WELCOME20 (₹20 OFF)
+ *   3+ → LOYAL3 (₹30 OFF)
+ *   5+ → LOYAL5 (₹50 OFF)
+ *   10+ → CHAMP10 (₹80 OFF)
+ *   20+ → HERO20 (₹100 OFF)
  */
 export const COUPONS = [
-  { code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", offPct: 50, maxOff: 100, minOrder: 199, minOrders: 0, firstOrderOnly: true },
-  { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", offPct: 20, maxOff: 80, minOrder: 149, minOrders: 1 },
-  { code: "HOMESERVE", title: "₹200 OFF home services", detail: "1 successful order • first service booking", offPct: 25, maxOff: 200, minOrder: 499, minOrders: 1 },
+  { code: "WELCOME20", title: "Flat ₹20 OFF", detail: "First order reward • no min order", offPct: 100, maxOff: 20, minOrder: 1, minOrders: 0, firstOrderOnly: true },
+  { code: "HOMESERVE", title: "Flat ₹99 OFF", detail: "1 successful order • first service booking", offPct: 100, maxOff: 99, minOrder: 299, minOrders: 1 },
   { code: "FREEDEL", title: "Free delivery", detail: "3 successful orders • min ₹99", offPct: 100, maxOff: 35, minOrder: 99, minOrders: 3 },
 ];
 
 /**
  * Loyalty ladder — target pura → coupon unlock, har cycle me 1 use.
- * 10 orders = poori cycle repeat (stages wapas unlock hote hain).
- * No-loss math: har coupon pe maxOff cap + minOrder floor + maxBudget global cap.
+ * 20 orders = poori cycle repeat (stages wapas unlock hote hain).
  * Sirf DELIVERED orders ginte hain (cancel nahi).
  */
 export const MILESTONE_COUPONS = [
-  { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", offPct: 20, maxOff: 80, minOrder: 149, minOrders: 3, minOrderValue: 0, maxBudget: 20000 },
-  { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", offPct: 50, maxOff: 100, minOrder: 199, minOrders: 5, minOrderValue: 0, maxBudget: 30000 },
-  { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", offPct: 40, maxOff: 150, minOrder: 299, minOrders: 5, minOrderValue: 199, maxBudget: 20000 },
-  { code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", offPct: 25, maxOff: 200, minOrder: 499, minOrders: 10, minOrderValue: 0, maxBudget: 15000 },
+  { code: "LOYAL3", title: "Flat ₹30 OFF", detail: "3 successful orders • Flat ₹30 OFF", offPct: 100, maxOff: 30, minOrder: 1, minOrders: 3, minOrderValue: 0, maxBudget: 20000 },
+  { code: "LOYAL5", title: "Flat ₹50 OFF", detail: "5 successful orders • Flat ₹50 OFF", offPct: 100, maxOff: 50, minOrder: 1, minOrders: 5, minOrderValue: 0, maxBudget: 30000 },
+  { code: "CHAMP10", title: "Flat ₹80 OFF", detail: "10 successful orders • Flat ₹80 OFF", offPct: 100, maxOff: 80, minOrder: 1, minOrders: 10, minOrderValue: 0, maxBudget: 40000 },
+  { code: "HERO20", title: "Flat ₹100 OFF", detail: "20 successful orders • Flat ₹100 OFF", offPct: 100, maxOff: 100, minOrder: 1, minOrders: 20, minOrderValue: 0, maxBudget: 50000 },
 ];
 
 export function greetingForHour(h: number) {

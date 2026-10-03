@@ -187,19 +187,29 @@ couponsRoute.get("/stages", auth, async (c) => {
       let state: StageState = "LOCKED";
       let cycles = 0;
       if (r.firstOrderOnly) {
-        // Welcome stage — sirf tab jab abhi tak koi order hi nahi hua.
+        // Welcome stage — sirf tab jab abhi tak koi order hi nahi hua aur naya account hai.
         unlocked = orderCountAll === 0 && uses === 0;
         state = uses > 0 ? "USED" : orderCountAll > 0 ? "EXPIRED" : "UNLOCKED";
+        have = orderCountAll === 0 ? 0 : 1;
       } else if (need > 0) {
         const total = await userQualifiedOrders(u.phone, Number(r.minOrderValue ?? 0));
-        cycles = Math.floor(total / need);
-        unlocked = cycles * perUser > uses;
-        const prog = total % need;
-        have = prog === 0 ? (total > 0 && unlocked ? need : 0) : prog;
-        state = unlocked ? "UNLOCKED" : have >= need ? "USED" : "LOCKED";
+        if (uses >= perUser) {
+          state = "USED";
+          unlocked = false;
+          have = need;
+        } else if (total >= need) {
+          state = "UNLOCKED";
+          unlocked = true;
+          have = need;
+        } else {
+          state = "LOCKED";
+          unlocked = false;
+          have = Math.min(total, need);
+        }
       } else {
         unlocked = uses < perUser;
         state = unlocked ? "UNLOCKED" : "USED";
+        have = 1;
       }
       items.push({ coupon: publicCoupon(r), need, have, unlocked, state, uses, cycles });
     }

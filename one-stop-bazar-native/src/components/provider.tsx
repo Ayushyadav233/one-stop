@@ -15,6 +15,7 @@ import {
   Bell,
   Bike,
   Bot,
+  Calendar,
   Check,
   ChevronRight,
   Clock,
@@ -35,7 +36,21 @@ import { blip, useOSB, type SellerOrder, type SellerOrderStatus } from "@/lib/os
 import { useTheme } from "@/theme/ThemeProvider";
 import { AreaGraph, F, Glass, Img, LiveDot, Ring, SectionHead, SpringBtn } from "./ui";
 import { ProviderCatalogSheet } from "./provider-catalog";
-import { SellerManage } from "./seller";
+import { SellerManage, isServiceSeller } from "./seller";
+
+/** Check if order is a home service booking (plumber, electrician, salon, AC, cleaning, etc.). */
+export function isServiceOrder(
+  o: { kind?: string | null; slotLabel?: string | null; items?: { name: string }[] },
+  sellerCats?: string[]
+): boolean {
+  if (o.kind === "service" || !!o.slotLabel) return true;
+  if (sellerCats && isServiceSeller(sellerCats)) return true;
+  if (o.items && o.items.some((it) => {
+    const n = (it.name || "").toLowerCase();
+    return n.includes("service") || n.includes("repair") || n.includes("cleaning") || n.includes("facial") || n.includes("plumber") || n.includes("electrician") || n.includes("salon") || n.includes("ac ") || n.includes("cut");
+  })) return true;
+  return false;
+}
 
 export function ProviderDash() {
   const { colors } = useTheme();
@@ -302,7 +317,7 @@ export function ProviderDash() {
   );
 }
 
-/* ═══════ ORDERS — self-delivery manager ═══════ */
+/* ═══════ ORDERS — self-delivery & service booking manager ═══════ */
 const STAGE_META: Record<SellerOrderStatus, { t: string; c: string }> = {
   new: { t: "New", c: "#E23744" },
   accepted: { t: "Accepted", c: "#1573FF" },
@@ -313,6 +328,21 @@ const STAGE_META: Record<SellerOrderStatus, { t: string; c: string }> = {
   cancelled: { t: "Cancelled", c: "#8C8C99" },
 };
 
+function getStageMeta(status: SellerOrderStatus, isSvc: boolean): { t: string; c: string } {
+  if (isSvc) {
+    switch (status) {
+      case "new": return { t: "New Booking 🗓️", c: "#E23744" };
+      case "accepted": return { t: "Confirmed ✓", c: "#7C5CFF" };
+      case "preparing": return { t: "Confirmed ✓", c: "#7C5CFF" };
+      case "onway": return { t: "Out for service 🛵", c: "#E8830C" };
+      case "ready": return { t: "Reached location 🛠️", c: "#1573FF" };
+      case "delivered": return { t: "Completed ✓", c: "#0C831F" };
+      case "cancelled": return { t: "Cancelled", c: "#8C8C99" };
+    }
+  }
+  return STAGE_META[status] ?? { t: status, c: "#1573FF" };
+}
+
 export function ProviderOrders() {
   const { colors } = useTheme();
   const { sellerOrders, seller } = useOSB();
@@ -321,6 +351,8 @@ export function ProviderOrders() {
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+
+  const isServiceAcc = isServiceSeller(seller.categories);
 
   const counts = {
     all: sellerOrders.length,
@@ -344,18 +376,32 @@ export function ProviderOrders() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 176 }}>
         <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
           <View>
-            <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>Orders</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>You pack it • your staff delivers it</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 22, letterSpacing: -0.5, color: colors.ink }}>
+              {isServiceAcc ? "Service Bookings" : "Orders"}
+            </Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>
+              {isServiceAcc ? "Customers book your slots • you visit their location 🛠️" : "You pack it • your staff delivers it"}
+            </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, backgroundColor: "#111114", paddingHorizontal: 12, paddingVertical: 8 }}>
-            <Bike size={13} color="#fff" />
-            <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>{seller.riders.length} riders</Text>
+            {isServiceAcc ? (
+              <Text style={{ fontSize: 13 }}>🛠️</Text>
+            ) : (
+              <Bike size={13} color="#fff" />
+            )}
+            <Text style={{ fontFamily: F.extra, fontSize: 11, color: "#fff" }}>
+              {isServiceAcc ? "Service Mode" : `${seller.riders.length} riders`}
+            </Text>
           </View>
         </View>
         <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
-          {[["New", counts.new, "#E23744"], ["Active", counts.active, "#7C5CFF"], ["COD due", inr(codDue), "#E8830C"]].map(([l, v, c]) => (
+          {[
+            [isServiceAcc ? "New Bookings" : "New", counts.new, "#E23744"],
+            [isServiceAcc ? "Active" : "Active", counts.active, "#7C5CFF"],
+            [isServiceAcc ? "Visit fees" : "COD due", inr(codDue), "#E8830C"],
+          ].map(([l, v, c]) => (
             <View key={l as string} style={{ flex: 1, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12, alignItems: "center" }}>
-              <Text style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 1, color: colors.ink3 }}>{(l as string).toUpperCase()}</Text>
+              <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 9.5, letterSpacing: 0.8, color: colors.ink3 }}>{(l as string).toUpperCase()}</Text>
               <Text style={{ marginTop: 2, fontFamily: F.extra, fontSize: 17, color: c as string }}>{v as string | number}</Text>
             </View>
           ))}
@@ -365,13 +411,19 @@ export function ProviderOrders() {
           <TextInput
             value={q}
             onChangeText={setQ}
-            placeholder="Search order id or customer…"
+            placeholder={isServiceAcc ? "Search booking code or customer…" : "Search order id or customer…"}
             placeholderTextColor={colors.ink3}
             style={{ flex: 1, fontFamily: F.semi, fontSize: 13, color: colors.ink, paddingVertical: 8 }}
           />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ marginTop: 8, gap: 6 }}>
-          {[["all", `All ${counts.all}`], ["new", `New ${counts.new}`], ["active", `Active ${counts.active}`], ["delivered", `Delivered ${counts.delivered}`], ["cancelled", `Cancelled ${counts.cancelled}`]].map(([k, t]) => (
+          {[
+            ["all", `All ${counts.all}`],
+            ["new", isServiceAcc ? `New Bookings ${counts.new}` : `New ${counts.new}`],
+            ["active", `Active ${counts.active}`],
+            ["delivered", isServiceAcc ? `Completed ${counts.delivered}` : `Delivered ${counts.delivered}`],
+            ["cancelled", `Cancelled ${counts.cancelled}`],
+          ].map(([k, t]) => (
             <Pressable
               key={k}
               onPress={() => setFilter(k)}
@@ -391,9 +443,11 @@ export function ProviderOrders() {
 
         <View style={{ marginTop: 12, gap: 10 }}>
           {list.map((o, i) => {
-            const m = STAGE_META[o.status];
+            const isSvc = isServiceOrder(o, seller.categories);
+            const m = getStageMeta(o.status, isSvc);
             const expanded = open === o.id;
             const outOfRange = o.distanceKm > seller.radiusKm;
+            const hasUnreadChat = !!chatUnread[o.id];
             return (
               <Animated.View entering={FadeIn.delay(Math.min(i * 40, 250))} key={o.id} style={{ borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, overflow: "hidden" }}>
                 <Pressable onPress={() => { setOpen(expanded ? null : o.id); blip(560); }} style={{ padding: 14 }}>
@@ -402,11 +456,17 @@ export function ProviderOrders() {
                       <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#fff" }}>{o.customer[0]}</Text>
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>{o.code}</Text>
                         <View style={{ borderRadius: 999, backgroundColor: m.c, paddingHorizontal: 8, paddingVertical: 2 }}>
                           <Text style={{ fontFamily: F.extra, fontSize: 9.5, color: "#fff" }}>{m.t}</Text>
                         </View>
+                        {hasUnreadChat && (
+                          <View style={{ borderRadius: 999, backgroundColor: "#E23744", paddingHorizontal: 7, paddingVertical: 2, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <View style={{ height: 6, width: 6, borderRadius: 3, backgroundColor: "#fff" }} />
+                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>NEW MSG 💬</Text>
+                          </View>
+                        )}
                       </View>
                       <Text numberOfLines={1} style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>
                         {o.customer} • {o.items.map((it) => `${it.qty}× ${it.name}`).join(", ").slice(0, 44)}
@@ -420,17 +480,28 @@ export function ProviderOrders() {
                       </View>
                     </View>
                   </View>
+
+                  {/* PROMINENT TIME SLOT BANNER FOR SERVICE BOOKINGS */}
+                  {isSvc && (
+                    <View style={{ marginTop: 8, borderRadius: 10, backgroundColor: "rgba(124,92,255,.14)", borderWidth: 1, borderColor: "rgba(124,92,255,.3)", paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                        <Calendar size={14} color="#7C5CFF" />
+                        <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 12, color: "#7C5CFF" }}>
+                          {o.slotLabel ? `SLOT: ${o.slotLabel}` : "SLOT: Today / ASAP Slot"}
+                        </Text>
+                      </View>
+                      <View style={{ borderRadius: 999, backgroundColor: "#7C5CFF", paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>SERVICE BOOKING</Text>
+                      </View>
+                    </View>
+                  )}
+
                   <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <View style={{ borderRadius: 6, backgroundColor: o.payment === "COD" ? "rgba(251,191,36,.25)" : "rgba(12,131,31,.12)", paddingHorizontal: 6, paddingVertical: 2 }}>
                       <Text style={{ fontFamily: F.extra, fontSize: 10, color: o.payment === "COD" ? "#92400E" : "#0C831F" }}>
                         {o.payment === "PayAfter" ? "PayAfter • collect after service" : `${o.payment}${o.payment === "COD" ? " • collect cash" : " • prepaid"}`}
                       </Text>
                     </View>
-                    {o.kind === "service" && !!o.slotLabel && (
-                      <View style={{ borderRadius: 6, backgroundColor: "rgba(124,92,255,.12)", paddingHorizontal: 6, paddingVertical: 2 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#7C5CFF" }}>🗓 {o.slotLabel}</Text>
-                      </View>
-                    )}
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 6, backgroundColor: outOfRange ? "rgba(226,55,68,.12)" : "rgba(0,0,0,.06)", paddingHorizontal: 6, paddingVertical: 2 }}>
                       <MapPin size={9} color={outOfRange ? "#E23744" : colors.ink2} />
                       <Text style={{ fontFamily: F.extra, fontSize: 10, color: outOfRange ? "#E23744" : colors.ink2 }}>
@@ -566,6 +637,7 @@ export function ProviderOrders() {
 function OrderActions({ o }: { o: SellerOrder }) {
   const { colors } = useTheme();
   const { updateOrderStatus, assignRider, seller } = useOSB();
+  const isSvc = isServiceOrder(o, seller.categories);
   const go = (s: SellerOrderStatus, f = 880) => { updateOrderStatus(o.id, s); blip(f, 0.12); };
   const call = () => {
     const d = o.phone.replace(/\D/g, "").slice(-10);
@@ -578,9 +650,8 @@ function OrderActions({ o }: { o: SellerOrder }) {
   };
   const btnBase = { flex: 1, flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6, borderRadius: 12, paddingVertical: 12 };
   const btnLabel = (c: string) => ({ fontFamily: F.extra, fontSize: 12.5, color: c });
-  // Service bookings: confirm → hold → out for service → reached → done.
-  // `preparing` skip, rider-assign skip (pro khud travel karta hai), `ready` = reached.
-  if (o.kind === "service") {
+  // Service bookings: confirm → out for service → reached → complete service.
+  if (isSvc) {
     if (o.status === "new") return (
       <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
         <Pressable onPress={() => go("cancelled", 400)} style={[btnBase, { backgroundColor: colors.chip }]}>
@@ -597,7 +668,7 @@ function OrderActions({ o }: { o: SellerOrder }) {
         </Pressable>
       </View>
     );
-    if (o.status === "accepted") return (
+    if (o.status === "accepted" || o.status === "preparing") return (
       <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
         <Pressable onPress={call} style={[btnBase, { backgroundColor: colors.chip }]}>
           <Phone size={14} color={colors.ink} />

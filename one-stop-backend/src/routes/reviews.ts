@@ -25,18 +25,36 @@ reviewsRoute.post("/", auth, async (c) => {
   const u = getUser(c);
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const rating = Math.min(5, Math.max(1, Math.round(Number(b.rating ?? 5))));
+  const storeId = typeof b.storeId === "string" ? b.storeId : null;
+  const productId = typeof b.productId === "string" ? b.productId : null;
+  const orderId = typeof b.orderId === "string" ? b.orderId : null;
+  const text = typeof b.text === "string" ? String(b.text).slice(0, 500) : null;
+
   const rows = await db
     .insert(reviews)
     .values({
-      storeId: (typeof b.storeId === "string" ? b.storeId : null) as never,
-      productId: (typeof b.productId === "string" ? b.productId : null) as never,
+      storeId: storeId as never,
+      productId: productId as never,
       userId: u.id as never,
       rating,
-      text: typeof b.text === "string" ? String(b.text).slice(0, 500) : null,
+      text,
       reply: null,
     })
     .returning();
-  logOk(`[review] new ${rating}★`, String(b.storeId ?? b.productId ?? "").slice(0, 8));
+
+  // Update store average rating & count if storeId provided
+  if (storeId) {
+    try {
+      const { stores } = await import("../db/schema.js");
+      const storeRev = await db.select({ rating: reviews.rating }).from(reviews).where(eq(reviews.storeId, storeId));
+      if (storeRev.length > 0) {
+        const avg = (storeRev.reduce((a, r) => a + Number(r.rating ?? 5), 0) / storeRev.length).toFixed(1);
+        await db.update(stores).set({ rating: String(avg), ratingsCount: storeRev.length }).where(eq(stores.id, storeId));
+      }
+    } catch { /* best-effort */ }
+  }
+
+  logOk(`[review] new ${rating}★`, String(storeId ?? productId ?? orderId ?? "").slice(0, 8));
   return c.json({ ok: true, review: rows[0] });
 });
 

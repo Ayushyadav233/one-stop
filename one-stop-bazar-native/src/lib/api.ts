@@ -276,10 +276,18 @@ export function apiMyReviews() {
     Array.isArray(j?.reviews) ? j!.reviews! : []
   );
 }
-export function apiPostReview(r: { storeId?: string; productId?: string; rating: number; text?: string }) {
+export function apiPostReview(r: { orderId?: string; storeId?: string; productId?: string; rating: number; text?: string }) {
   return json<{ ok?: boolean; review?: ApiReview }>("/api/reviews", {
     method: "POST", body: JSON.stringify(r),
   }, 10000);
+}
+export function apiGetReviewsByStore(storeId: string) {
+  return json<{ reviews?: ApiReview[] }>(`/api/reviews?storeId=${encodeURIComponent(storeId)}`, undefined, 10000).then((j) =>
+    Array.isArray(j?.reviews) ? j!.reviews! : []
+  );
+}
+export function apiRateOrder(r: { orderId: string; storeId?: string; productId?: string; rating: number; text?: string }) {
+  return apiPostReview(r);
 }
 export function apiDeleteReview(id: string) {
   return json<{ ok?: boolean }>(`/api/reviews/${encodeURIComponent(id)}`, { method: "DELETE" }, 10000);

@@ -60,6 +60,13 @@ export async function userQualifiedOrders(phone: string, minValue = 0): Promise<
 
 /**
  * Full guard check (validate + order dono yahi use karte hain).
+ * Strict zero-loophole checks:
+ * 1. Code match (base code ya code-suffix e.g. WELCOME20 or WELCOME20-4821)
+ * 2. Active + Window window check
+ * 3. Min order subtotal check
+ * 4. First-order-only check: phone order count > 0 OR user use count > 0 → REJECT
+ * 5. Stage reward check: caller's delivered orders < minOrders → REJECT (sharing code blocks)
+ * 6. Single-use check: user use count >= maxUsesPerUser → REJECT (reuse blocks)
  * Returns { ok, discount } ya { ok:false, error } with user-facing Hindi reason.
  */
 export async function checkCoupon(
@@ -68,15 +75,19 @@ export async function checkCoupon(
   user: { id: string; phone: string },
   opts?: { storeKey?: string },
 ): Promise<{ ok: true; coupon: CouponRow; discount: number } | { ok: false; error: string }> {
-  const c = code.trim().toUpperCase().slice(0, 32);
-  if (!c) return { ok: false, error: "code required" };
+  const rawCode = code.trim().toUpperCase().slice(0, 32);
+  if (!rawCode) return { ok: false, error: "code required" };
+  const baseCode = rawCode.split("-")[0];
   let rows: CouponRow[];
   try {
     rows = await db.select().from(coupons);
   } catch {
     return { ok: false, error: "coupons unavailable" };
   }
-  const cp = rows.find((r) => String(r.code ?? "").toUpperCase() === c);
+  const cp = rows.find((r) => {
+    const c = String(r.code ?? "").toUpperCase();
+    return c === baseCode || c === rawCode;
+  });
   if (!cp) return { ok: false, error: "invalid code" };
   if (cp.active === false) return { ok: false, error: "ye coupon ab bandh hai" };
   if (!inWindow(cp)) {
@@ -89,21 +100,28 @@ export async function checkCoupon(
   }
   const minOrder = Number(cp.minOrder ?? 0);
   if (subtotal < minOrder) return { ok: false, error: `min order ₹${minOrder} pe lagega` };
-  // Per-user limit.
-  // Stage (milestone) coupons REPEAT hote hain: har `need` delivered orders
-  // pe 1 naya use milta hai (10 orders = poori cycle repeat, sab stages wapas).
-  // maxUsesPerUser = 1 cycle me kitne use (default 1).
-  const perUserRaw = Number(cp.maxUsesPerUser ?? 1);
-  const perUser = perUserRaw > 0 ? perUserRaw : 0; // 0 = unlimited (non-stage only)
+
+  const usedCount = await userUseCount(user.id, cp.id);
+  const perUserLimit = Number(cp.maxUsesPerUser ?? 1);
+
+  // 1. First-order-only check (WELCOME20) — 1st order hote hi / use hote hi PERMANENTLY EXPIRED
+  if (cp.firstOrderOnly) {
+    if (usedCount > 0) {
+      return { ok: false, error: "tum ye welcome coupon pehle hi use kar chuke ho" };
+    }
+    const totalOrders = await userOrderCount(user.phone);
+    if (totalOrders > 0) {
+      return { ok: false, error: "welcome coupon sirf pehle order pe valid hai — aapka 1st order ho chuka hai" };
+    }
+  }
+
+  // 2. Stage requirement check — caller user ke delivered orders count hone chahiye (code sharing impossible)
   const stageNeed = Number(cp.minOrders ?? 0);
   if (stageNeed > 0) {
     const minVal = Number(cp.minOrderValue ?? 0);
-    const total = await userQualifiedOrders(user.phone, minVal);
-    const allowed = perUser > 0 ? Math.floor(total / stageNeed) * perUser : total >= stageNeed ? Number.MAX_SAFE_INTEGER : 0;
-    const used = await userUseCount(user.id, cp.id);
-    if (used >= allowed) {
-      const prog = total % stageNeed;
-      const more = stageNeed - prog; // prog 0 → poora agla cycle baaki
+    const qualified = await userQualifiedOrders(user.phone, minVal);
+    if (qualified < stageNeed) {
+      const more = stageNeed - qualified;
       return {
         ok: false,
         error: minVal > 0
@@ -111,31 +129,13 @@ export async function checkCoupon(
           : `locked — ${more} aur order pe unlock`,
       };
     }
-  } else if (perUser > 0) {
-    const used = await userUseCount(user.id, cp.id);
-    if (used >= perUser) return { ok: false, error: "tum ye coupon use kar chuke ho" };
-  }
-  // First-order-only (BAZAR50).
-  if (cp.firstOrderOnly) {
-    const n = await userOrderCount(user.phone);
-    if (n > 0) return { ok: false, error: "ye coupon sirf pehle order pe lagta hai" };
-  }
-  // Milestone lock (loyalty ladder): N delivered orders ke baad unlock.
-  // Server-side guard — app me code type karke bypass impossible.
-  const needOrders = Number(cp.minOrders ?? 0);
-  if (needOrders > 0) {
-    const minVal = Number(cp.minOrderValue ?? 0);
-    const have = await userQualifiedOrders(user.phone, minVal);
-    if (have < needOrders) {
-      const more = needOrders - have;
-      return {
-        ok: false,
-        error: minVal > 0
-          ? `locked — ${more} aur ₹${minVal}+ order pe unlock`
-          : `locked — ${more} aur order pe unlock`,
-      };
+    if (perUserLimit > 0 && usedCount >= perUserLimit) {
+      return { ok: false, error: "tum ye reward coupon 1 baar use kar chuke ho" };
     }
+  } else if (perUserLimit > 0 && usedCount >= perUserLimit) {
+    return { ok: false, error: "tum ye coupon 1 baar use kar chuke ho" };
   }
+
   // Total uses cap.
   if (cp.maxUsesTotal != null && Number(cp.usesTotal ?? 0) >= Number(cp.maxUsesTotal)) {
     return { ok: false, error: "coupon limit khatm — agla offer dekho" };

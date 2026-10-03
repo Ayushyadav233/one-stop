@@ -61,17 +61,42 @@ export function getCachedPushToken(): string | null {
 }
 
 /**
- * Foreground chat pushes → unread badge. Background-tap wala notification
- * app khulne pe last-response se pakda jata hai. Never throws.
+ * Foreground chat pushes → unread badge. Background-tap / notification tap → deep link.
+ * Never throws.
  */
 export function watchChatPushes(onChat: (orderId: string) => void): () => void {
+  return watchPushNotifications({ onChat });
+}
+
+export function watchPushNotifications(callbacks: {
+  onChat?: (orderId: string) => void;
+  onProviderOrder?: (orderId: string) => void;
+  onCustomerOrder?: (orderId: string) => void;
+  onRateOrder?: (orderId: string) => void;
+}): () => void {
   try {
     const subs: { remove: () => void }[] = [];
+    const handleData = (data: Record<string, unknown>, isTap: boolean) => {
+      const orderId = String(data.orderId ?? "");
+      const kind = String(data.kind ?? "");
+      const screen = String(data.screen ?? "");
+
+      if (kind === "chat" || screen === "chat") {
+        if (orderId && callbacks.onChat) callbacks.onChat(orderId);
+      } else if (screen === "rate_order" || kind === "rate_order") {
+        if (orderId && callbacks.onRateOrder) callbacks.onRateOrder(orderId);
+      } else if (screen === "provider_orders" || kind === "provider_order") {
+        if (orderId && callbacks.onProviderOrder) callbacks.onProviderOrder(orderId);
+      } else if (orderId) {
+        if (isTap && callbacks.onCustomerOrder) callbacks.onCustomerOrder(orderId);
+      }
+    };
+
     subs.push(
       Notifications.addNotificationReceivedListener((n) => {
         try {
           const d = (n.request.content.data ?? {}) as Record<string, unknown>;
-          if (String(d.kind ?? "") === "chat" && d.orderId) onChat(String(d.orderId));
+          handleData(d, false);
         } catch { /* noop */ }
       })
     );
@@ -79,7 +104,7 @@ export function watchChatPushes(onChat: (orderId: string) => void): () => void {
       Notifications.addNotificationResponseReceivedListener((r) => {
         try {
           const d = (r.notification.request.content.data ?? {}) as Record<string, unknown>;
-          if (String(d.kind ?? "") === "chat" && d.orderId) onChat(String(d.orderId));
+          handleData(d, true);
         } catch { /* noop */ }
       })
     );

@@ -4,7 +4,7 @@
  * Backend-first, fail-soft: offline me static/empty state, kabhi crash nahi.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { Bell, BellOff, Check, ChevronDown, Copy, Globe, Moon, Phone, Send, Star, Sun, Trash2, Users, X } from "lucide-react-native";
 import { blip, useOSB } from "@/lib/osb-store";
@@ -15,6 +15,7 @@ import {
   apiGetReferrals,
   apiGetStages,
   apiMyReviews,
+  apiRateOrder,
   apiValidateCoupon,
   POINTS_PER_RUPEE,
   REFER_REWARD_POINTS,
@@ -22,6 +23,7 @@ import {
   type ApiReview,
   type ApiStage,
   type ApiStageItem,
+  type StageState,
 } from "@/lib/api";
 import { registerForPush, unregisterForPush } from "@/lib/push";
 import { copyText } from "@/lib/clipboard";
@@ -43,9 +45,9 @@ export function PSheet({ onClose, children, zIndex = 60 }: { onClose: () => void
       <Animated.View entering={FadeIn} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.5)" }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "88%", borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: colors.app, overflow: "hidden" }}>
+      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "88%", maxHeight: "88%", borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: colors.app, overflow: "hidden" }}>
         <Animated.View entering={SlideInDown.springify().stiffness(tokens.ui.sheetSpring.stiffness).damping(tokens.ui.sheetSpring.damping)} style={{ flex: 1 }}>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 12 }} keyboardShouldPersistTaps="handled">
+          <ScrollView showsVerticalScrollIndicator style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, paddingTop: 12 }} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
         </Animated.View>
@@ -84,18 +86,21 @@ function Stars({ n, size = 13 }: { n: number; size?: number }) {
  * cards ke buttons dead hain (sirf reason msg). Server pe bhi guard
  * (validate fail-closed) — UI + API dono strict. */
 
-/** /stages offline ho tab locked fallback (sab LOCKED, login pe live). */
+/** /stages offline ho tab fallback: Stage 0 (WELCOME20) UNLOCKED for new user, baaki LOCKED. */
 export function fallbackStages(): ApiStage[] {
   return STAGE_FALLBACK.map((s) => ({
-    need: s.need, have: 0, unlockedCount: 0, total: s.coupons.length,
-    items: s.coupons.map((f) => ({
-      coupon: {
-        code: f.code, title: f.title, detail: f.detail,
-        minOrder: f.minOrder, minOrderValue: f.minOrderValue ?? 0,
-        firstOrderOnly: s.need === 0,
-      },
-      need: s.need, have: 0, unlocked: false, state: "LOCKED" as const,
-    })),
+    need: s.need, have: 0, unlockedCount: s.need === 0 ? s.coupons.length : 0, total: s.coupons.length,
+    items: s.coupons.map((f) => {
+      const isWelcome = s.need === 0 || !!f.firstOrderOnly;
+      return {
+        coupon: {
+          code: f.code, title: f.title, detail: f.detail,
+          minOrder: f.minOrder, minOrderValue: f.minOrderValue ?? 0,
+          firstOrderOnly: isWelcome,
+        },
+        need: s.need, have: 0, unlocked: isWelcome, state: (isWelcome ? "UNLOCKED" : "LOCKED") as StageState,
+      };
+    }),
   }));
 }
 
@@ -372,6 +377,121 @@ export function CouponsSheet({ onClose }: { onClose: () => void }) {
       <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 11, color: colors.ink3, textAlign: "center" }}>
         {tr("cpnNote")}
       </Text>
+    </PSheet>
+  );
+}
+
+/* ═══════════ RateOrderSheet ═══════════ */
+export function RateOrderSheet({
+  orderId,
+  storeId,
+  storeName,
+  isService,
+  onClose,
+}: {
+  orderId: string;
+  storeId?: string;
+  storeName?: string;
+  isService?: boolean;
+  onClose: () => void;
+}) {
+  const tr = useTx();
+  const { colors } = useTheme();
+  const rateLiveOrder = useOSB((s) => s.rateLiveOrder);
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (busy || done) return;
+    setBusy(true);
+    blip(880, 0.12);
+    try {
+      await apiRateOrder({
+        orderId,
+        storeId,
+        rating,
+        text: text.trim() || undefined,
+      });
+      rateLiveOrder(orderId, rating);
+      setDone(true);
+      blip(990, 0.18);
+      setTimeout(() => onClose(), 1400);
+    } catch {
+      rateLiveOrder(orderId, rating);
+      setDone(true);
+      setTimeout(() => onClose(), 1400);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <PSheet onClose={onClose}>
+      <PHead title={isService ? "Rate Service Partner ⭐" : "Rate Order & Store ⭐"} onClose={onClose} />
+      {done ? (
+        <View style={{ paddingVertical: 28, alignItems: "center" }}>
+          <Text style={{ fontSize: 44 }}>🎉</Text>
+          <Text style={{ marginTop: 10, fontFamily: F.extra, fontSize: 17, color: colors.ink }}>Thank you for your rating!</Text>
+          <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12.5, color: colors.ink3, textAlign: "center" }}>
+            Your feedback keeps One Stop Bazar quality high.
+          </Text>
+        </View>
+      ) : (
+        <View style={{ marginTop: 14 }}>
+          <View style={{ borderRadius: 18, backgroundColor: "#111117", padding: 16, alignItems: "center" }}>
+            <Text style={{ fontFamily: F.bold, fontSize: 12, color: "rgba(255,255,255,.65)" }}>
+              {storeName ? storeName : isService ? "Service Booking" : "Store Order"}
+            </Text>
+            <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 16, color: "#fff", textAlign: "center" }}>
+              {isService ? "How was your service experience?" : "How was your delivery & items?"}
+            </Text>
+
+            <View style={{ marginTop: 14, flexDirection: "row", gap: 10 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Pressable
+                  key={star}
+                  onPress={() => { setRating(star); blip(600 + star * 40); }}
+                  style={{ padding: 4 }}
+                >
+                  <Star
+                    size={32}
+                    color={star <= rating ? "#F8CB46" : "rgba(255,255,255,.2)"}
+                    fill={star <= rating ? "#F8CB46" : "transparent"}
+                  />
+                </Pressable>
+              ))}
+            </View>
+            <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 13, color: "#F8CB46" }}>
+              {rating === 5 ? "Excellent ⭐⭐⭐⭐⭐" : rating === 4 ? "Very Good ⭐⭐⭐⭐" : rating === 3 ? "Good ⭐⭐⭐" : rating === 2 ? "Fair ⭐⭐" : "Poor ⭐"}
+            </Text>
+          </View>
+
+          <View style={{ marginTop: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>Write a review (optional)</Text>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder={isService ? "Tell us about service quality, punctuality & behavior…" : "Tell us about quality, packaging & delivery speed…"}
+              placeholderTextColor={colors.ink3}
+              multiline
+              numberOfLines={3}
+              style={{ marginTop: 8, fontFamily: F.medium, fontSize: 12.5, color: colors.ink, minHeight: 70, textAlignVertical: "top" }}
+            />
+          </View>
+
+          <Pressable
+            onPress={() => void submit()}
+            disabled={busy}
+            style={{ marginTop: 14, borderRadius: 16, backgroundColor: isService ? "#7C5CFF" : "#0C831F", paddingVertical: 14, alignItems: "center", opacity: busy ? 0.6 : 1 }}
+          >
+            <Text style={{ fontFamily: F.extra, fontSize: 14, color: "#fff" }}>
+              {busy ? tr("comLoading") : "Submit Rating & Review"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
     </PSheet>
   );
 }

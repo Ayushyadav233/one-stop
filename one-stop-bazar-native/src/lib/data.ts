@@ -254,9 +254,8 @@ export const CATS = [
 ];
 
 export const COUPONS = [
-  { code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", offPct: 50, maxOff: 100, minOrder: 199 },
-  { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", offPct: 20, maxOff: 80, minOrder: 149 },
-  { code: "HOMESERVE", title: "₹200 OFF home services", detail: "On first service booking", offPct: 25, maxOff: 200, minOrder: 499 },
+  { code: "WELCOME20", title: "Flat ₹20 OFF", detail: "First order reward • no min order", offPct: 100, maxOff: 20, minOrder: 1 },
+  { code: "HOMESERVE", title: "Flat ₹99 OFF", detail: "On first service booking • min ₹299", offPct: 100, maxOff: 99, minOrder: 299 },
   { code: "FREEDEL", title: "Free delivery", detail: "On 3 orders this week", offPct: 100, maxOff: 35, minOrder: 99 },
 ];
 
@@ -266,10 +265,10 @@ export const COUPONS = [
  * truth hai (validate fail-closed), ye sirf display fallback hai.
  */
 export const MILESTONE_FALLBACK = [
-  { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", minOrder: 149, minOrderValue: 0, need: 3 },
-  { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", minOrder: 199, minOrderValue: 0, need: 5 },
-  { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", minOrder: 299, minOrderValue: 199, need: 5 },
-  { code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", minOrder: 499, minOrderValue: 0, need: 10 },
+  { code: "LOYAL3", title: "Flat ₹30 OFF", detail: "3 successful orders • Flat ₹30 OFF", minOrder: 1, minOrderValue: 0, need: 3 },
+  { code: "LOYAL5", title: "Flat ₹50 OFF", detail: "5 successful orders • Flat ₹50 OFF", minOrder: 1, minOrderValue: 0, need: 5 },
+  { code: "CHAMP10", title: "Flat ₹80 OFF", detail: "10 successful orders • Flat ₹80 OFF", minOrder: 1, minOrderValue: 0, need: 10 },
+  { code: "HERO20", title: "Flat ₹100 OFF", detail: "20 successful orders • Flat ₹100 OFF", minOrder: 1, minOrderValue: 0, need: 20 },
 ];
 
 /**
@@ -277,20 +276,23 @@ export const MILESTONE_FALLBACK = [
  * dikhe (sab LOCKED, login + internet pe live). Server single source hai.
  */
 export const STAGE_FALLBACK: { need: number; coupons: { code: string; title: string; detail: string; minOrder: number; minOrderValue?: number; firstOrderOnly?: boolean }[] }[] = [
-  { need: 0, coupons: [{ code: "BAZAR50", title: "50% OFF up to ₹100", detail: "On orders above ₹199 • All stores", minOrder: 199, firstOrderOnly: true }] },
+  { need: 0, coupons: [{ code: "WELCOME20", title: "Flat ₹20 OFF", detail: "First order reward • no min order", minOrder: 1, firstOrderOnly: true }] },
   { need: 1, coupons: [
-    { code: "FRESH20", title: "20% fresh cashback", detail: "Grocery • up to ₹80", minOrder: 149 },
-    { code: "HOMESERVE", title: "₹200 OFF home services", detail: "1 successful order • first service booking", minOrder: 499 },
+    { code: "HOMESERVE", title: "Flat ₹99 OFF", detail: "1 successful order • first service booking", minOrder: 299 },
   ] },
   { need: 3, coupons: [
-    { code: "LOYAL3", title: "20% OFF up to ₹80", detail: "3 orders complete • min ₹149", minOrder: 149 },
+    { code: "LOYAL3", title: "Flat ₹30 OFF", detail: "3 successful orders • Flat ₹30 OFF", minOrder: 1 },
     { code: "FREEDEL", title: "Free delivery", detail: "3 successful orders • min ₹99", minOrder: 99 },
   ] },
   { need: 5, coupons: [
-    { code: "LOYAL5", title: "50% OFF up to ₹100", detail: "5 orders complete • min ₹199", minOrder: 199 },
-    { code: "BIGSHOP5", title: "40% OFF up to ₹150", detail: "5 × ₹199+ orders • min ₹299", minOrder: 299, minOrderValue: 199 },
+    { code: "LOYAL5", title: "Flat ₹50 OFF", detail: "5 successful orders • Flat ₹50 OFF", minOrder: 1 },
   ] },
-  { need: 10, coupons: [{ code: "CHAMP10", title: "25% OFF up to ₹200", detail: "10 orders complete • min ₹499", minOrder: 499 }] },
+  { need: 10, coupons: [
+    { code: "CHAMP10", title: "Flat ₹80 OFF", detail: "10 successful orders • Flat ₹80 OFF", minOrder: 1 },
+  ] },
+  { need: 20, coupons: [
+    { code: "HERO20", title: "Flat ₹100 OFF", detail: "20 successful orders • Flat ₹100 OFF", minOrder: 1 },
+  ] },
 ];
 
 export function greetingForHour(h: number, lang: "en" | "hi" = "en") {

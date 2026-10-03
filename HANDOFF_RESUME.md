@@ -1,39 +1,68 @@
-# HANDOFF — One Stop Bazar (restart se pehle save: 2026-09-26, round-2)
+# HANDOFF — One Stop Bazar (Completed & Handoff Summary: Sat Oct 03 2026)
 
-> Nayi chat me sabse pehle YE FILE padho, phir §RESUME se kaam shuru karo. Koi purana context yaad nahi rahega.
+> Nayi chat me sabse pehle YE FILE padho. Aaj ka poora kaam commit & push ho chuka hai.
 
 ## Paths
-- Web app (Next): `C:\Users\ayush\Downloads\one-stop-bazar-app-development` (root, `src/app/api/*` = purane 6 routes)
-- Backend (Hono+Drizzle+Neon): `...\one-stop-bazar-app-development\one-stop-backend` (detail: waha `HANDOFF_RESUME.md` bhi hai)
+- Web app (Next): `C:\Users\ayush\Downloads\one-stop-bazar-app-development` (root)
+- Backend (Hono+Drizzle+Neon): `...\one-stop-bazar-app-development\one-stop-backend`
 - Native app (Expo SDK 57): `...\one-stop-bazar-app-development\one-stop-bazar-native`
-- Phase-2 plan: project root `PHASE2_PLAN.md` (padho — P1/P2/P3 detail)
-- Lock backup: `C:\Users\ayush\AppData\Local\Temp\opencode\package-lock.json.bak` (Temp restart pe rehta hai)
 
-## DONE ✅
-1. **Backend live on Render:** `https://one-stop-hvh8.onrender.com` — health/stores/seed/orders/coupons sab verified. Push: `https://github.com/Ayushyadav233/one-stop.git` (master).
-2. **APK green (purana):** build `7ca4465b` → `https://expo.dev/artifacts/eas/qPM9d1N1v1PUISQByzTHuYBFxzlItYZSSh4GvbSjmGI.apk` (backend-OTP login wala).
-3. **P1 SMS code live:** `sendSms()` MSG91 plug + rate-limit (60s cooldown, 3/10min) + OTP-hide (`OTP_DEV_MODE=false` pe). Render pe abhi `OTP_DEV_MODE` default true hai (APK safe). MSG91 keys aayi nahi — Firebase direction me shift ho gaye.
-4. **Phase-2 backend (`c69c73f`, Render live ✅):** `POST /api/auth/firebase` (firebase-admin 14.5.0, projectId-only verify), `osb_push_tokens` table + register/delete endpoints, order-status push hooks (accepted/ready/onway/delivered, fail-soft, Expo Push API). Verify kiya: firebase 503→(env ke baad)401, push register/delete ok, order PATCH ok.
-5. **Phase-2 app (`4093bd6` + `2ccd767`, pushed, tsc+doctor 21/21 ✅):** packages (rn-firebase/app+auth v26 modular API, notifications, device, updates), `FIREBASE_AUTH_ENABLED=true`, login Firebase path + push register, `catalog.ts` adapter + liveStores/liveProducts wiring + boot sync, EAS Update config (channel preview). `connect@3.7.0` devDep (css-interop upstream bug fix).
-6. **Firebase project (user ne kiya):** `rudra-omniverse`, `google-services.json` verify+commit (package `com.onestopbazar.app` ✅), Phone provider enabled + test numbers, FCM V1 enabled, Render `FIREBASE_PROJECT_ID=rudra-omniverse` set (verify: firebase endpoint ab 401 deta hai, 503 nahi).
-7. **EAS builds (2026-09-26, round-3):** `6b40b608` ERRORED in INSTALL (`npm ci` out-of-sync, 94 missing: metro-0.87/babel-7.29/react-dom-19.3 stack). Root cause: floating `*` peers (`react-native-worklets→@react-native/metro-config:*`, `expo/expo-router→react-dom:*`) resolve differently per platform → lock mismatched on EAS-Linux. FIXED in `4153d67`: exact-pinned devDeps `@babel/core 7.29.7` + `@react-native/metro-config 0.86.3` + `react-dom 19.2.3` (tree deduped 1433→935 pkgs, `npm ci --include=dev` exit 0, tsc+doctor 21/21). NOTE: `overrides` does NOT force skipped peers in — direct devDep pin is what works. Next build `18885adb` ERRORED in PREBUILD (missing `android.googleServicesFile` in app.json). FIXED in `850798f` (points to `./google-services.json`, local prebuild verified OK). **Current build `d25e6d9e` (commit `850798f`) FINISHED 1:01 PM. APK: `https://expo.dev/artifacts/eas/aAdi6rSCpsORozAUmUfsb_IElF6glQW4tGoJKSl-u5s.apk` (firebase+push, Maps SKIP). PENDING: device test (Firebase login + push) → `OTP_DEV_MODE=false`.** Maps key SKIP (map blank rahega is build me).
-8. **You-tab working (2026-09-27, uncommitted):** saare ProfileTab rows live — EditProfileSheet + ChangeLocationSheet wired (backend PATCH /api/users/me sync), CouponsSheet (GET /api/coupons + POST /validate + copy/apply), ReviewsSheet (GET /api/reviews/mine + DELETE), SettingsSheet (EN/हिं toggle via i18n.ts, notif on/off, dark), HelpSheet (FAQ + tel:18001234567 + wa.me), WalletSheet, coupon tap-to-copy (expo-clipboard, LAZY require — static import purani binary me bundle gira deta tha), logout confirm + push unregister + token delete, login pe apiGetMe pull + Firebase error messages + backend-code fallback. Backend osb_users += email/gender/avatar/address/area/lat/lng (Neon me SQL se lagaye — drizzle push TTY pe atka tha). tsc green (admin.tsx ke 76 pre-existing errors bhi fix), Metro bundle 200. NOTE: expo-clipboard native code ke liye dev-build/EAS rebuild chahiye (purani binary pe copy fallback = code dikhega). Render redeploy PENDING (naye endpoints backend me).
-9. **Super-admin login (verified):** same OTP login, number `7988125778` (DB me role=super_admin) → app role pehchan ke You tab me "Super Admin" row + Home banner dikhata hai → AdminPanel. POST /api/admin/seed ab ADMIN_SETUP_KEY mangta hai (pehle open tha — koi bhi admin ban sakta tha!), phone 10-digit canonical. Key local .env me set; Render pe bhi daalni hai.
-10. **AdminPanel full-live rewrite (2026-09-27, uncommitted):** saare nakli numbers/buttons hataye — Overview (live stats + latest orders, 20s auto-refresh + pull-refresh + header search/bell-badge/refresh), Providers (real users list + role cycle with self-demote guard, real stores + open/close + add + delete), Catalog (backend category requests approve/decline + local publish), Finance (real revenue/GMV/orders queue with status advance + cancel, per-store ranking), Risk (live cancel/request flags, no fake ML), CMS (working category toggles + live coupons manager + tab shortcuts). Mutations verified via curl (coupon create/delete, store close/reopen, role promote/demote). Backend admin.ts me mutation logs.
-11. **Homepage CMS (2026-09-27, uncommitted):** nayi table `osb_home_blocks` (kind=banner/festival/ad/strip, tag/title/sub/cta/image/c1/c2, linkKind=none/store/category/search + linkValue, active, sort, startsAt/endsAt) + public GET /api/home (schedule-filtered) + /api/admin/home CRUD (super_admin). 8 seed blocks (asli store images, purana look same). App: boot + home-open pe syncHomeBlocks (persisted, offline fallback), banners/festival/strips live render + tap links (store khulta/category filter/search), naya mid-home Ads section. Admin CMS me Home Content manager: list + live-count + add/edit + image picker (store images) + link picker + festival dates + active toggle + up/down reorder + delete. CRUD curl-verified (ad create→public me dikha→delete). Metro bundle 200, dono tsc green.
-12. **Hardware back button (2026-09-27, uncommitted):** nayi `src/lib/back.ts` (overlay closer-stack LIFO + `useSheetBackCloser` hook) + ShellBody me central BackHandler. Pehle khula sheet/modal bandh hota hai (store/cart/checkout/tracking/success/profile-sheets/khata/provider-sheets), phir tab reset (customer→home, provider→dash, admin→overview), phir home pe double-press-to-exit (toast). tsc green, bundle 200.
+---
 
-## IN-PROGRESS ⏳ / REMAINING (restart ke baad YAHI)
-1. **Build `d25e6d9e` FINISHED → APK ready (link §DONE-7 me):** device pe install → Firebase test-number login → order accept → push aaya? → PASS hua to Render pe `OTP_DEV_MODE=false` karo. → APK download → Firebase login test (whitelisted test number + `123456`) → push test (order accept karke dekho) → PASS hua to Render pe `OTP_DEV_MODE=false` karo (tabhi prod OTP-hide on hoga).
-2. **CONFIRMED (user ne kiya):** FCM service-account JSON expo.dev Credentials me upload ho gaya → push delivery ready.
-3. **Baad me (deferred, explicitly):** Maps API key + rebuild #2 (user ne skip bola); coupons backend-merge (static 4 chal rahe); `eas channel:create preview` (OTA future ke liye); MSG91 fallback (dormant code, zaroorat nahi); Play assets checklist (`docs-build.md` §4-6).
+## DONE TODAY (Sat Oct 03 2026) ✅
 
-## §RESUME (exact order)
-1. `npx eas-cli@latest build:list` (one-stop-bazar-native dir se) → `d25e6d9e` status dekho.
-2. Finished → `Application Archive URL` se APK download → device pe install → Firebase test-number login → order accept → push aaya?
-3. Sab pass → Render dashboard → `OTP_DEV_MODE=false` add karo (prod OTP-hide on).
-4. User se pucho: (a) expo.dev credentials me FCM service-account upload hua? (b) Maps key kab dega (rebuild #2 ke liye)?
+### 1. STRICT Stage-Gated Milestone Coupon & Reward System
+- **Backend Migration**: `0013_stage_gates.sql` created & backend `/api/coupons/stages` endpoint added as single source of truth.
+- **Exact Reward Ladder**:
+  - 🎁 **First Order (0 orders)**: `WELCOME20` → **Flat ₹20 OFF** (first order only, min order ₹1)
+  - 🏆 **3 Delivered Orders**: `LOYAL3` → **Flat ₹30 OFF**
+  - 🏆 **5 Delivered Orders**: `LOYAL5` → **Flat ₹50 OFF**
+  - 🏆 **10 Delivered Orders**: `CHAMP10` → **Flat ₹80 OFF**
+  - 🏆 **20 Delivered Orders**: `HERO20` → **Flat ₹100 OFF**
+  - 🛠️ **First Home Service Booking**: `HOMESERVE` → **Flat ₹99 OFF**
+  - 🚚 **3 Orders**: `FREEDEL` → **Free Delivery**
+- **Strict Guardrails**: `checkCoupon()` enforces single-use per user (`userUseCount >= 1` REJECTS) and phone number check (`userOrderCount > 0` REJECTS Welcome coupon after 1st order). Caller phone eligibility check prevents sharing codes between accounts.
+- **UI & Sheet Scrolling**: `CouponsSheet` features a Professional **REWARD TABLE** + locked stage cards (`🔒 Locked` dead buttons). `PSheet` height calculation fix for smooth scrolling without freezing.
 
-## Credentials / secrets (file me NAHI likhe)
-- Neon DATABASE_URL: sirf `one-stop-backend\.env` + Render env. Firebase projectId `rudra-omniverse` public hai (google-services.json committed — standard practice).
-- Service-account JSON (push) SECRET hai — user khud expo.dev me upload karega, chat/file me kabhi mat mangna.
+### 2. 500m Service & Delivery Radius
+- Seller Onboarding Step 3 & Manage tab Delivery Card radius stepper now starts at **500 m** (`0.5 km`), step 1 km up to 15 km. `fmtRadius()` formats `< 1 km` as `500 m` (e.g. `500 m`, `~0.8 km²`).
+
+### 3. Service Provider Account UI & Action Flow
+- Service Provider account (`isServiceSeller`) UI tweaks:
+  - Header: **"Service Bookings"** (instead of "Orders"), Subtitle: `"Customers book your slots • you visit their location 🛠️"`.
+  - Stats: **"NEW BOOKINGS"**, **"ACTIVE"**, **"VISIT FEES"**.
+- **Prominent Time Slot Display**: Order card displays `🗓️ BOOKED SLOT: Mon, 14 Oct • 02:00 PM - 03:00 PM` prominently in purple banner.
+- **Service Action Flow**:
+  - `new` -> **"Confirm booking ✓"**
+  - `accepted` / `preparing` -> **"Out for service 🛠️"** (NO "Mark ready for pickup")
+  - `onway` -> **"Mark reached 📍"**
+  - `ready` -> **"Complete service ✓"**
+
+### 4. Unread Chat Dot Alert 💬
+- Collapsed order card header displays pulsing red badge **`🔴 NEW MSG 💬`** when unread chat messages exist for that order.
+
+### 5. Professional Push Notifications & Deep Linking
+- 100% Professional English, detailed context, NO "pro" (uses "Service Partner", "Store Partner", "Delivery Partner").
+- Notification on delivery/service completion includes `{ orderId: id, screen: "rate_order" }`.
+- Deep linking in `watchPushNotifications` (`push.ts` & `shell.tsx`):
+  - Chat push -> opens Chat Modal directly.
+  - Provider order push -> opens Provider Orders tab.
+  - Rating push -> opens `RateOrderSheet` directly!
+
+### 6. Rating & Review System (`RateOrderSheet` & Conditional Ratings)
+- **`RateOrderSheet`**: 5-Star interactive touch picker, review text input, submit button (`POST /api/reviews`), and thank-you view.
+- **Conditional Rating Display**: If product/store has no ratings (`ratingsCount === 0`), rating badge is **completely hidden** (no fake or 0 stars). Shown only when ratings exist (`⭐ 4.8 (12)`).
+- **StoreSheet Reviews Tab**: Fetches real customer reviews (`GET /api/reviews?storeId=...`) and displays ratings, text, date, and store replies.
+
+---
+
+## RESUME TONIGHT (Exact Next Steps) 🌙
+
+1. **Rating & Review Enhancements (Tonight)**:
+   - Add product-item rating stars inside completed order rating sheet.
+   - Auto-popup `RateOrderSheet` on customer app launch if un-rated completed orders exist.
+   - Add Provider Dashboard review reply input in Seller Manage panel (`PATCH /api/reviews/:id`).
+
+2. **Verification & Build**:
+   - Run `npx tsc --noEmit` on both backend & native (currently clean ✅).
+   - Test flow with live dev backend / EAS preview build.

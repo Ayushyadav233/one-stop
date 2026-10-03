@@ -167,7 +167,7 @@ adminRoute.patch("/coupons/:id", auth, async (c: any) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const patch: Record<string, unknown> = {};
-  for (const k of ["code", "title", "detail", "offPct", "maxOff", "minOrder", "kind"]) {
+  for (const k of ["code", "title", "detail", "offPct", "maxOff", "minOrder", "kind", "active", "firstOrderOnly", "minOrders", "minOrderValue", "maxUsesTotal", "maxUsesPerUser", "maxBudget", "expiresAt", "startsAt"]) {
     if (typeof b[k] !== "undefined") patch[k] = b[k];
   }
   if (Object.keys(patch).length === 0) return c.json({ ok: false, error: "empty" }, 400);
@@ -180,7 +180,23 @@ adminRoute.post("/coupons", auth, async (c: any) => {
   const b = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const code = String(b.code ?? "").trim();
   if (!code) return c.json({ ok: false, error: "code required" }, 400);
-  const rows = await db.insert(coupons).values({ code, title: String(b.title ?? code), detail: String(b.detail ?? ""), offPct: Number(b.offPct ?? 20), maxOff: Number(b.maxOff ?? 120), minOrder: Number(b.minOrder ?? 149), kind: String(b.kind ?? "all") }).returning();
+  const rows = await db.insert(coupons).values({
+    code: code.toUpperCase(),
+    title: String(b.title ?? code),
+    detail: String(b.detail ?? ""),
+    offPct: Number(b.offPct ?? 20),
+    maxOff: Number(b.maxOff ?? 120),
+    minOrder: Number(b.minOrder ?? 149),
+    kind: String(b.kind ?? "all"),
+    active: typeof b.active === "boolean" ? b.active : true,
+    firstOrderOnly: !!b.firstOrderOnly,
+    minOrders: Number(b.minOrders ?? 0),
+    minOrderValue: Number(b.minOrderValue ?? 0),
+    maxUsesTotal: b.maxUsesTotal != null ? Number(b.maxUsesTotal) : null,
+    maxUsesPerUser: b.maxUsesPerUser != null ? Number(b.maxUsesPerUser) : 1,
+    maxBudget: b.maxBudget != null ? Number(b.maxBudget) : null,
+    expiresAt: typeof b.expiresAt === "string" && b.expiresAt ? new Date(b.expiresAt) : null,
+  }).returning();
   logOk(`[admin] coupon created: ${code.slice(0, 32)}`);
   return c.json({ ok: true, coupon: rows[0] });
 });

@@ -100,10 +100,22 @@ chatRoute.post("/:orderId", auth, async (c) => {
           const owner = mine[0]?.ownerId;
           if (owner) {
             const ou = await db.select().from(users).where(eq(users.id, owner)).limit(1).catch(() => []);
-            if (ou[0]?.phone) await notifyUserPhones([ou[0].phone], "New message 💬", `${o.code ?? "Order"}: ${text.slice(0, 80)}`, { orderId: o.id, kind: "chat" });
+            if (ou[0]?.phone) {
+              await notifyUserPhones(
+                [ou[0].phone],
+                `💬 New Message from Customer (#${o.code ?? "Order"})`,
+                `${o.customerName || "Customer"}: "${text.slice(0, 80)}"`,
+                { orderId: o.id, kind: "chat", screen: "chat" }
+              );
+            }
           }
         } else if (o.customerPhone) {
-          await notifyUserPhones([o.customerPhone], "New message 💬", `${o.storeName ?? "Store"}: ${text.slice(0, 80)}`, { orderId: o.id, kind: "chat" });
+          await notifyUserPhones(
+            [o.customerPhone],
+            `💬 New Message from Store Partner (#${o.code ?? "Order"})`,
+            `${o.storeName || "Store Partner"}: "${text.slice(0, 80)}"`,
+            { orderId: o.id, kind: "chat", screen: "chat" }
+          );
         }
       } catch { /* best-effort */ }
     })();

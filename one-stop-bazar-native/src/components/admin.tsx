@@ -899,6 +899,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
   const [firstOnly, setFirstOnly] = useState(false);
   const [budget, setBudget] = useState("50000");
   const [expiryDays, setExpiryDays] = useState("60");
+  const [minOrdersReq, setMinOrdersReq] = useState("0");
   const pendingReq = data.requests.filter((r) => S(r.status) === "pending").length;
 
   const createCoupon = () => {
@@ -913,6 +914,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
       maxUsesTotal: maxUses.trim() ? N(maxUses, 1000) : null,
       maxUsesPerUser: N(perUser, 1),
       firstOrderOnly: firstOnly,
+      minOrders: N(minOrdersReq, 0),
       maxBudget: budget.trim() ? N(budget, 50000) : null,
       expiresAt,
     }).then((j) => {
@@ -926,6 +928,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
         setMaxUses("1000");
         setPerUser("1");
         setFirstOnly(false);
+        setMinOrdersReq("0");
         setBudget("50000");
         setExpiryDays("60");
         setAdding(false);
@@ -976,7 +979,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 12.5, color: colors.ink }}>{S(c.code)}{on ? "" : " (OFF)"}</Text>
                 <Text numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 10.5, color: colors.ink3 }}>
-                  {S(c.title)} • {N(c.offPct)}% off, max ₹{N(c.maxOff)} • min ₹{N(c.minOrder)}
+                  {S(c.title)} • {N(c.offPct)}% off, max ₹{N(c.maxOff)} • min ₹{N(c.minOrder)}{N(c.minOrders ?? 0) > 0 ? ` • ${N(c.minOrders)} orders req` : c.firstOrderOnly ? " • 1st order" : ""}
                 </Text>
               </View>
               <Pressable onPress={() => toggleCoupon(c)} style={{ height: 32, paddingHorizontal: 10, borderRadius: 10, backgroundColor: on ? "#0C831F" : colors.chip, alignItems: "center", justifyContent: "center" }}>
@@ -1008,6 +1011,7 @@ function Cms({ data, go }: { data: AdminData; go: (t: string) => void }) {
               <TextInput value={budget} onChangeText={(v) => setBudget(v.replace(/\D/g, "").slice(0, 7))} placeholder="Budget ₹" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
             </View>
             <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              <TextInput value={minOrdersReq} onChangeText={(v) => setMinOrdersReq(v.replace(/\D/g, "").slice(0, 3))} placeholder="Req orders (e.g. 3)" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
               <TextInput value={expiryDays} onChangeText={(v) => setExpiryDays(v.replace(/\D/g, "").slice(0, 4))} placeholder="Expiry days" placeholderTextColor={colors.ink3} keyboardType="number-pad" style={{ flex: 1, borderRadius: 12, backgroundColor: colors.card2, paddingHorizontal: 14, paddingVertical: 12, fontFamily: F.semi, fontSize: 13, color: colors.ink }} />
               <Pressable onPress={() => setFirstOnly(!firstOnly)} style={{ flex: 1, borderRadius: 12, backgroundColor: firstOnly ? "#0C831F" : colors.card2, paddingVertical: 12, alignItems: "center" }}>
                 <Text style={{ fontFamily: F.extra, fontSize: 12, color: firstOnly ? "#fff" : colors.ink }}>{firstOnly ? "First-order ON" : "First-order OFF"}</Text>

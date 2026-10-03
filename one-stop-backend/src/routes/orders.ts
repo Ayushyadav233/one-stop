@@ -8,19 +8,43 @@ import { logError, logInfo, logOk, logWarn } from "../lib/logger.js";
 
 export const ordersRoute = new Hono();
 
-// Order status → customer push copy (phase-2 scope: status updates only).
+// Order status → customer push copy (Professional English, detailed context).
 const STATUS_PUSH: Record<string, { title: string; body: (code: string) => string }> = {
-  accepted: { title: "Order accepted ✅", body: (code) => `Store ne ${code} accept kiya — taiyaari shuru!` },
-  ready: { title: "Order ready 📦", body: (code) => `${code} pickup ke liye ready hai.` },
-  onway: { title: "Rider on the way 🛵", body: (code) => `${code} lekar rider nikal chuka hai.` },
-  delivered: { title: "Delivered 🎉", body: (code) => `${code} deliver ho gaya. Enjoy!` },
+  accepted: {
+    title: "Order Accepted ✅",
+    body: (code) => `Store Partner accepted your order #${code}. Preparation is underway.`,
+  },
+  ready: {
+    title: "Order Ready for Pickup 📦",
+    body: (code) => `Your order #${code} is packed and ready for pickup.`,
+  },
+  onway: {
+    title: "Delivery Agent On The Way 🛵",
+    body: (code) => `Your delivery partner is on the way with order #${code}. Tap to track live.`,
+  },
+  delivered: {
+    title: "Order Delivered 🎉",
+    body: (code) => `Order #${code} has been delivered successfully. Thank you for shopping with us!`,
+  },
 };
-// Service bookings (Amazon style): confirm → hold → out for service → reached → done.
+// Service bookings (Professional English, NO "Pro"): confirm → out for service → reached → complete.
 const SERVICE_PUSH: Record<string, { title: string; body: (code: string) => string }> = {
-  accepted: { title: "Booking confirmed 🗓", body: (code) => `${code} ka slot lock ho gaya — pro time pe aayega!` },
-  ready: { title: "Pro has reached ✓", body: (code) => `Aapka pro pahunch gaya hai (${code}).` },
-  onway: { title: "Pro is on the way 🛠️", body: (code) => `${code} ke liye pro nikal chuka hai — live dekho.` },
-  delivered: { title: "Service completed 🎉", body: (code) => `${code} poori ho gayi. Pro ko rate karo!` },
+  accepted: {
+    title: "Booking Confirmed 🗓️",
+    body: (code) => `Your service provider confirmed booking #${code}. Your scheduled slot is locked.`,
+  },
+  onway: {
+    title: "Service Partner On The Way 🛵",
+    body: (code) => `Your service provider is traveling to your address for booking #${code}. Tap to view.`,
+  },
+  ready: {
+    title: "Service Partner Reached Location 📍",
+    body: (code) => `Your service provider has arrived at your address for booking #${code}.`,
+  },
+  delivered: {
+    title: "Service Completed 🎉",
+    body: (code) => `Service booking #${code} has been completed. Tap to rate your service partner!`,
+  },
 };
 
 // GET /api/orders — same contract: { orders: rows[80] }, fail-soft []
@@ -117,6 +141,36 @@ ordersRoute.post("/", async (c) => {
       .returning({ id: orders.id, code: orders.code, status: orders.status });
     const itemCount = Array.isArray(b.items) ? b.items.length : 0;
     logOk(`[order] new ${rows[0]?.code ?? code}`, `₹${payload.total} · ${itemCount} items · ${payload.storeName}${couponCode ? ` · coupon ${couponCode} −₹${discount}` : ""}`);
+
+    // Notify store partner / service provider (fire-and-forget push)
+    if (payload.storeKey) {
+      void (async () => {
+        try {
+          const { sellerStores: ssTable } = await import("../db/schema.js");
+          const mine = await db.select().from(ssTable).where(eq(ssTable.slug, payload.storeKey)).limit(1).catch(() => []);
+          const ownerId = mine[0]?.ownerId;
+          if (ownerId) {
+            const owner = await db.select({ phone: users.phone }).from(users).where(eq(users.id, ownerId)).limit(1);
+            if (owner[0]?.phone) {
+              const isSvc = kind === "service";
+              const orderCode = rows[0]?.code ?? code;
+              const pushTitle = isSvc
+                ? `🗓️ New Service Booking Received (#${orderCode})`
+                : `🛍️ New Order Received (#${orderCode})`;
+              const pushBody = isSvc
+                ? `Customer ${payload.customerName} booked ${slotLabel || "a service"} for ₹${payload.total}. Tap to confirm booking.`
+                : `Customer ${payload.customerName} placed an order for ₹${payload.total} (${itemCount} items). Tap to accept.`;
+              await notifyUserPhones([owner[0].phone], pushTitle, pushBody, {
+                orderId: rows[0]?.id ?? orderCode,
+                kind: isSvc ? "service" : "order",
+                screen: "provider_orders",
+              });
+            }
+          }
+        } catch { /* best-effort */ }
+      })();
+    }
+
     // Quota sirf successful order pe jalta hai.
     if (couponCode && discount > 0) {
       const header = c.req.header("authorization") ?? "";
@@ -176,8 +230,14 @@ ordersRoute.patch("/:id", async (c) => {
       const code = String(full[0]?.code ?? rows[0].id.slice(0, 8));
       if (phone) {
         const status = String(b.status);
+        const targetScreen = status === "delivered" ? "rate_order" : "tracking";
         // Fire-and-forget (response slow na ho), result log me aayega.
-        void notifyUserPhones([phone], tpl.title, tpl.body(code), { orderId: id, status }).then((sent) =>
+        void notifyUserPhones([phone], tpl.title, tpl.body(code), {
+          orderId: id,
+          status,
+          kind: isSvc ? "service" : "order",
+          screen: targetScreen,
+        }).then((sent) =>
           logInfo(`[push] ${sent > 0 ? `sent ×${sent}` : "no devices"}`, `${status} → ${code}`),
         );
       }

@@ -42,7 +42,7 @@ import {
 } from "lucide-react-native";
 import { CATEGORIES, CATS, PRODUCTS, STORES, TRENDING, greetingForHour, inr, type CategoryDef } from "@/lib/data";
 import { activeCategories, blip, fastestEta, productEtaText, useMarketplace, useOSB } from "@/lib/osb-store";
-import { apiGetStages, apiGetReferrals, apiMyReviews, HOME_CONFIG_DEFAULTS, REFER_REWARD_POINTS, POINTS_PER_RUPEE, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion, type ApiStage } from "@/lib/api";
+import { apiGetStages, apiGetReferrals, apiMyReviews, apiGetReviewsByStore, type ApiReview, HOME_CONFIG_DEFAULTS, REFER_REWARD_POINTS, POINTS_PER_RUPEE, apiAdminPatchHomeBlock, apiAdminDeleteHomeBlock, apiAdminPostHomeBlock, apiAdminPatchHomeConfig, apiAdminPublishHome, apiAdminRevertHome, apiAdminHomeVersions, type ApiHomeBlock, type ApiHomeVersion, type ApiStage } from "@/lib/api";
 import { useSheetBackCloser } from "@/lib/back";
 import { unregisterForPush } from "@/lib/push";
 import { useT, useTx, type StrKey } from "@/lib/i18n";
@@ -2699,30 +2699,48 @@ export function ProfileTab() {
             <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 22, color: colors.ink }}>₹{Math.floor(walletPoints / 10)}</Text>
             <Text style={{ fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>{tr("youWalletTap", { n: walletPoints })}</Text>
           </Pressable>
-          <Pressable onPress={() => void copyCoupon()} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Ticket size={13} color={colors.ink3} />
-              <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>COUPON</Text>
-            </View>
-            <View style={{ marginTop: 6, flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View style={{ borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(14,59,46,.4)", backgroundColor: "rgba(248,203,70,.3)", paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ fontFamily: F.extra, fontSize: 12, color: colors.ink }}>{coupon ?? "—"}</Text>
-              </View>
-              <Copy size={13} color={colors.ink3} style={{ opacity: 0.5 }} />
-            </View>
-            <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: copiedTick ? "#0C831F" : colors.ink3 }}>{copiedTick ? tr("comCopied") : tr("comCopy")}</Text>
-          </Pressable>
+          {(() => {
+            const eff = stgData?.stages ?? fallbackStages();
+            const items = eff.flatMap((s) => s.items);
+            const openItem = items.find((i) => i.state === "UNLOCKED" && i.unlocked) ?? null;
+            const codeDisp = coupon || (openItem ? String(openItem.coupon.code ?? "").toUpperCase() : null);
+            const titleDisp = openItem ? String(openItem.coupon.title ?? "") : "Offers inside";
+            return (
+              <Pressable onPress={() => { setSheet("coupons"); blip(600); }} style={{ flex: 1, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ticket size={13} color={colors.ink3} />
+                    <Text style={{ fontFamily: F.extra, fontSize: 10.5, letterSpacing: 1, color: colors.ink3 }}>COUPONS</Text>
+                  </View>
+                  <View style={{ borderRadius: 999, backgroundColor: "#0C831F", paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>{eff.reduce((a, s) => a + s.unlockedCount, 0)} OPEN</Text>
+                  </View>
+                </View>
+                <View style={{ marginTop: 6, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <View style={{ borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(12,131,31,.5)", backgroundColor: "rgba(12,131,31,.08)", paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#0C831F" }}>{codeDisp ?? "VIEW"}</Text>
+                  </View>
+                </View>
+                <Text numberOfLines={1} style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: "#0C831F" }}>
+                  {titleDisp} →
+                </Text>
+              </Pressable>
+            );
+          })()}
         </View>
 
         {/* Milestone short strip — kitna khula / next kitna door (tap = full journey). Fallback pe bhi dikhe. */}
         {(() => {
           const eff = stgData?.stages ?? fallbackStages();
           const items = eff.flatMap((s) => s.items);
+          const openItem = items.find((i) => i.state === "UNLOCKED" && i.unlocked) ?? null;
           const nx = items.find((i) => i.state === "LOCKED") ?? null;
           const u = eff.reduce((a, s) => a + s.unlockedCount, 0);
           const tCount = eff.reduce((a, s) => a + s.total, 0);
           const pct = nx && nx.need > 0 ? Math.min(100, Math.round((nx.have / nx.need) * 100)) : 100;
-          const code = nx ? String(nx.coupon.code ?? "").toUpperCase() : "";
+          const nxCode = nx ? String(nx.coupon.code ?? "").toUpperCase() : "";
+          const openCode = openItem ? String(openItem.coupon.code ?? "").toUpperCase() : "";
+          const openTitle = openItem ? String(openItem.coupon.title ?? "") : "";
           return (
             <Pressable
               onPress={() => { setSheet("coupons"); blip(600); }}
@@ -2730,14 +2748,18 @@ export function ProfileTab() {
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <View style={{ height: 44, width: 44, borderRadius: 14, backgroundColor: "#F8CB46", alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontSize: 22 }}>🏆</Text>
+                  <Text style={{ fontSize: 22 }}>{openItem ? "🎁" : "🏆"}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>
-                    {nx ? tr("msNextShort", { code, have: nx.have, need: nx.need, n: Math.max(0, nx.need - nx.have) }) : tr("msAllDone")}
+                  <Text numberOfLines={1} style={{ fontFamily: F.extra, fontSize: 13, color: "#fff" }}>
+                    {openItem
+                      ? `🎁 ${openCode}: ${openTitle} (Ready!)`
+                      : nx
+                        ? tr("msNextShort", { code: nxCode, have: nx.have, need: nx.need, n: Math.max(0, nx.need - nx.have) })
+                        : tr("msAllDone")}
                   </Text>
                   <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11, color: "rgba(255,255,255,.65)" }}>
-                    {tr("stgOpenCount", { u, t: tCount })} • tap for stages →
+                    {nx ? `Next: ${nxCode} (${nx.need} orders)` : tr("stgOpenCount", { u, t: tCount })} • tap for all rewards →
                   </Text>
                   {nx && nx.need > 0 ? (
                     <View style={{ marginTop: 8, height: 7, borderRadius: 999, backgroundColor: "rgba(255,255,255,.15)", overflow: "hidden" }}>
@@ -2814,6 +2836,99 @@ export function ProfileTab() {
       {sheet === "settings" && <SettingsSheet onClose={closeSheet} />}
       {sheet === "help" && <HelpSheet onClose={closeSheet} />}
       {sheet === "wallet" && <WalletSheet onClose={closeSheet} />}
+    </View>
+  );
+}
+
+function StoreReviewsTab({ storeId, avgRating, count }: { storeId: string; avgRating: number; count?: string | number }) {
+  const { colors } = useTheme();
+  const [reviews, setReviews] = useState<ApiReview[] | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    apiGetReviewsByStore(storeId)
+      .then((r) => { if (live) setReviews(r); })
+      .catch(() => { if (live) setReviews([]); });
+    return () => { live = false; };
+  }, [storeId]);
+
+  return (
+    <View style={{ paddingTop: 8, gap: 10 }}>
+      <View style={{ borderRadius: 16, backgroundColor: "#111117", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View>
+          <Text style={{ fontFamily: F.extra, fontSize: 11, letterSpacing: 1, color: "rgba(255,255,255,.6)" }}>STORE RATING</Text>
+          <View style={{ marginTop: 2, flexDirection: "row", alignItems: "baseline", gap: 6 }}>
+            <Text style={{ fontFamily: F.extra, fontSize: 28, color: "#fff" }}>{avgRating > 0 ? avgRating.toFixed(1) : "New"}</Text>
+            <Text style={{ fontFamily: F.extra, fontSize: 16, color: "#F8CB46" }}>★</Text>
+          </View>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ fontFamily: F.bold, fontSize: 11.5, color: "#34D399" }}>
+            {reviews?.length ? `${reviews.length} Verified Reviews` : count ? `${count} Ratings` : "No reviews yet"}
+          </Text>
+          <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 10.5, color: "rgba(255,255,255,.6)" }}>
+            Verified customer ratings
+          </Text>
+        </View>
+      </View>
+
+      {reviews === null ? (
+        <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 12, color: colors.ink3, textAlign: "center" }}>Loading reviews…</Text>
+      ) : reviews.length === 0 ? (
+        <View style={{ paddingVertical: 24, alignItems: "center" }}>
+          <Text style={{ fontSize: 36 }}>⭐</Text>
+          <Text style={{ marginTop: 8, fontFamily: F.extra, fontSize: 14, color: colors.ink }}>Be the first to review!</Text>
+          <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12, color: colors.ink3, textAlign: "center" }}>
+            Complete an order or booking to rate this store.
+          </Text>
+        </View>
+      ) : (
+        reviews.map((r) => (
+          <View key={r.id} style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", gap: 2 }}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Star key={i} size={12} color={i <= Math.round(Number(r.rating ?? 5)) ? "#F8CB46" : "rgba(0,0,0,.15)"} fill={i <= Math.round(Number(r.rating ?? 5)) ? "#F8CB46" : "transparent"} />
+                ))}
+              </View>
+              {r.createdAt ? (
+                <Text style={{ fontFamily: F.bold, fontSize: 10, color: colors.ink3 }}>
+                  {new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                </Text>
+              ) : null}
+            </View>
+            {r.text ? (
+              <Text style={{ marginTop: 6, fontFamily: F.medium, fontSize: 12, color: colors.ink }}>{r.text}</Text>
+            ) : (
+              <Text style={{ marginTop: 4, fontFamily: F.bold, fontSize: 11, color: colors.ink3 }}>Rated {r.rating} stars</Text>
+            )}
+            {r.reply ? (
+              <View style={{ marginTop: 8, borderRadius: 10, backgroundColor: colors.chip, padding: 10 }}>
+                <Text style={{ fontFamily: F.extra, fontSize: 10, letterSpacing: 1, color: colors.ink3 }}>STORE RESPONSE</Text>
+                <Text style={{ marginTop: 2, fontFamily: F.medium, fontSize: 11.5, color: colors.ink2 }}>{r.reply}</Text>
+              </View>
+            ) : null}
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+function StoreInfoTab({ store }: { store: any }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ paddingTop: 8, gap: 10 }}>
+      <View style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 14 }}>
+        <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>About {store.name}</Text>
+        <Text style={{ marginTop: 4, fontFamily: F.medium, fontSize: 12, color: colors.ink2 }}>{store.cuisine ?? store.tagline}</Text>
+        <View style={{ marginTop: 10, gap: 6, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }}>
+          <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>📍 Address: {store.address}</Text>
+          <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>⏰ Hours: {store.openHours ?? "09:00 AM – 10:00 PM"}</Text>
+          <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: colors.ink3 }}>🛵 Service Range: {store.distanceKm} km radius</Text>
+          <Text style={{ fontFamily: F.semi, fontSize: 11.5, color: "#0C831F" }}>🛡️ Health & Safety Score: {store.healthScore ?? 92}%</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -2895,67 +3010,77 @@ export function StoreSheet({ id, onClose }: { id: string; onClose: () => void })
             ))}
           </View>
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-            <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: 1.5, color: colors.ink3 }}>{tr("stRec", { n: menu.length })}</Text>
-            <View style={{ marginTop: 10, gap: 12 }}>
-              {menu.map((p, i) => {
-                const qty = cart.find((c) => c.productId === p.id)?.qty ?? 0;
-                const out = isOutOfStock(p);
-                const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: s.name, unit: p.unit, tint: p.tint } as never;
-                return (
-                  <Animated.View key={p.id} entering={FadeIn.delay(Math.min(i * 40, 300))} style={{ marginBottom: 8, flexDirection: "row", gap: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 10 }}>
-                    <View style={{ flex: 1, minWidth: 0, paddingVertical: 4, paddingLeft: 4 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <VegMark veg={p.isVeg} />
-                        {p.isBestseller && (
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                            <Star size={9} fill="#E23744" color="#E23744" />
-                            <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#E23744" }}>{tr("stBest")}</Text>
+            {tab === "reviews" ? (
+              <StoreReviewsTab storeId={s.id} avgRating={s.rating} count={s.ratingsCount} />
+            ) : tab === "info" ? (
+              <StoreInfoTab store={s} />
+            ) : (
+              <>
+                <Text style={{ fontFamily: F.extra, fontSize: 13, letterSpacing: 1.5, color: colors.ink3 }}>{tr("stRec", { n: menu.length })}</Text>
+                <View style={{ marginTop: 10, gap: 12 }}>
+                  {menu.map((p, i) => {
+                    const qty = cart.find((c) => c.productId === p.id)?.qty ?? 0;
+                    const out = isOutOfStock(p);
+                    const line = { productId: p.id, name: p.name, emoji: p.emoji, image: p.image, price: p.price, qty: 1, storeId: p.storeId, storeName: s.name, unit: p.unit, tint: p.tint } as never;
+                    return (
+                      <Animated.View key={p.id} entering={FadeIn.delay(Math.min(i * 40, 300))} style={{ marginBottom: 8, flexDirection: "row", gap: 12, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 10 }}>
+                        <View style={{ flex: 1, minWidth: 0, paddingVertical: 4, paddingLeft: 4 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <VegMark veg={p.isVeg} />
+                            {p.isBestseller && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                                <Star size={9} fill="#E23744" color="#E23744" />
+                                <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#E23744" }}>{tr("stBest")}</Text>
+                              </View>
+                            )}
                           </View>
-                        )}
-                      </View>
-                      <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 14, lineHeight: 18, color: colors.ink }}>{p.name}</Text>
-                      <View style={{ marginTop: 2, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>₹{p.price}</Text>
-                        {p.mrp && <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3, textDecorationLine: "line-through" }}>₹{p.mrp}</Text>}
-                        <View style={{ borderRadius: 6, backgroundColor: "rgba(12,131,31,.08)", paddingHorizontal: 4, paddingVertical: 1 }}>
-                          <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#0C831F" }}>⭐ {p.rating}</Text>
+                          <Text style={{ marginTop: 4, fontFamily: F.extra, fontSize: 14, lineHeight: 18, color: colors.ink }}>{p.name}</Text>
+                          <View style={{ marginTop: 2, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Text style={{ fontFamily: F.extra, fontSize: 13, color: colors.ink }}>₹{p.price}</Text>
+                            {p.mrp && <Text style={{ fontFamily: F.medium, fontSize: 11, color: colors.ink3, textDecorationLine: "line-through" }}>₹{p.mrp}</Text>}
+                            {!!p.rating && p.rating > 0 ? (
+                              <View style={{ borderRadius: 6, backgroundColor: "rgba(12,131,31,.08)", paddingHorizontal: 4, paddingVertical: 1 }}>
+                                <Text style={{ fontFamily: F.extra, fontSize: 10, color: "#0C831F" }}>⭐ {p.rating}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <Text numberOfLines={2} style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, lineHeight: 16, color: colors.ink2 }}>{p.description}</Text>
                         </View>
-                      </View>
-                      <Text numberOfLines={2} style={{ marginTop: 4, fontFamily: F.medium, fontSize: 11.5, lineHeight: 16, color: colors.ink2 }}>{p.description}</Text>
-                    </View>
-                    <View style={{ width: 118 }}>
-                      <View style={{ position: "relative", height: 104, width: 118, borderRadius: 14, backgroundColor: "#f2f2f2", overflow: "hidden", opacity: out ? 0.6 : 1 }}>
-                        <Img src={p.image} style={{ width: "100%", height: "100%" }} />
-                        {(p.images?.length ?? 0) > 1 && (
-                          <View style={{ position: "absolute", right: 6, top: 6, borderRadius: 6, backgroundColor: "rgba(0,0,0,.65)", paddingHorizontal: 6, paddingVertical: 2 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>📷 {p.images!.length}</Text>
+                        <View style={{ width: 118 }}>
+                          <View style={{ position: "relative", height: 104, width: 118, borderRadius: 14, backgroundColor: "#f2f2f2", overflow: "hidden", opacity: out ? 0.6 : 1 }}>
+                            <Img src={p.image} style={{ width: "100%", height: "100%" }} />
+                            {(p.images?.length ?? 0) > 1 && (
+                              <View style={{ position: "absolute", right: 6, top: 6, borderRadius: 6, backgroundColor: "rgba(0,0,0,.65)", paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>📷 {p.images!.length}</Text>
+                              </View>
+                            )}
+                            {out && (
+                              <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
+                                <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>{tr("hmOos")}</Text>
+                              </View>
+                            )}
                           </View>
-                        )}
-                        {out && (
-                          <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.65)", paddingVertical: 4, alignItems: "center" }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: "#fff" }}>{tr("hmOos")}</Text>
+                          <View style={{ position: "absolute", bottom: 22, left: "50%", marginLeft: -36 }}>
+                            {out ? (
+                              <View style={{ borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 7 }}>
+                                <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{s.kind === "service" ? tr("stSlotFull") : tr("hmOos")}</Text>
+                              </View>
+                            ) : s.kind === "service" ? (
+                              <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, backgroundColor: "#7C5CFF", paddingHorizontal: 22, paddingVertical: 8 }}>
+                                <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>{tr("stBook")}</Text>
+                              </Pressable>
+                            ) : (
+                              <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
+                            )}
                           </View>
-                        )}
-                      </View>
-                      <View style={{ position: "absolute", bottom: 22, left: "50%", marginLeft: -36 }}>
-                        {out ? (
-                          <View style={{ borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 7 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 9, color: colors.ink3 }}>{s.kind === "service" ? tr("stSlotFull") : tr("hmOos")}</Text>
-                          </View>
-                        ) : s.kind === "service" ? (
-                          <Pressable onPress={() => { set({ bookingPid: p.id }); blip(760); }} style={{ borderRadius: 8, backgroundColor: "#7C5CFF", paddingHorizontal: 22, paddingVertical: 8 }}>
-                            <Text style={{ fontFamily: F.extra, fontSize: 12, color: "#fff" }}>{tr("stBook")}</Text>
-                          </Pressable>
-                        ) : (
-                          <AddStepper small qty={qty} onAdd={() => addToCart(line)} onInc={() => addToCart(line)} onDec={() => decCart(p.id)} />
-                        )}
-                      </View>
-                      <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{s.kind === "service" ? `${p.unit} • ${p.eta ?? tr("stFixed")}` : tr("stUnitCustom", { unit: p.unit })}</Text>
-                    </View>
-                  </Animated.View>
-                );
-              })}
-            </View>
+                          <Text style={{ marginTop: 20, fontFamily: F.bold, fontSize: 9.5, color: colors.ink3, textAlign: "center" }}>{s.kind === "service" ? `${p.unit} • ${p.eta ?? tr("stFixed")}` : tr("stUnitCustom", { unit: p.unit })}</Text>
+                        </View>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </View>
         </ScrollView>
       </Animated.View>
